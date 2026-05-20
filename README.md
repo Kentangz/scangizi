@@ -1,4 +1,4 @@
-# 🥤 ScanGizi v2
+# 🥤 ScanGizi 
 
 Estimasi **Nutri-Level** minuman dari foto label Informasi Nilai Gizi (ING).
 Kalkulasi mengacu pada **KMK HK.01.07/MENKES/301/2026 Lampiran A**.
@@ -21,9 +21,9 @@ Isi salah satu di file `.env`:
 
 | Provider | Variabel | Info |
 |---|---|---|
-| **Google Gemini** ⭐ | `VITE_GEMINI_API_KEY` | Gratis ~250 req/hari. [aistudio.google.com](https://aistudio.google.com) |
-| OpenAI GPT-4o | `VITE_OPENAI_API_KEY` | Berbayar. [platform.openai.com](https://platform.openai.com) |
-| Anthropic Claude | `VITE_ANTHROPIC_API_KEY` | Berbayar. [console.anthropic.com](https://console.anthropic.com) |
+| **Google Gemini** ⭐ | `VITE_GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) |
+| OpenAI GPT-4o | `VITE_OPENAI_API_KEY` |  [platform.openai.com](https://platform.openai.com) |
+| Anthropic Claude | `VITE_ANTHROPIC_API_KEY` | . [console.anthropic.com](https://console.anthropic.com) |
 
 > ⚠️ Jangan commit `.env` ke Git — sudah dikecualikan di `.gitignore`
 
