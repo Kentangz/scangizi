@@ -5,7 +5,7 @@
  * komprehensif untuk ekstraksi label ING yang andal.
  *
  * Provider yang didukung:
- * - Google Gemini  (VITE_GEMINI_API_KEY)    → direkomendasikan
+ * - Google Gemini  (VITE_GEMINI_API_KEY)
  * - OpenAI GPT-4o  (VITE_OPENAI_API_KEY)
  * - Anthropic      (VITE_ANTHROPIC_API_KEY)
  *
@@ -258,7 +258,6 @@ export async function analyzeLabel(base64) {
       default: throw new Error(`Provider tidak dikenal: ${provider}`);
     }
   } catch (err) {
-    // Tambahkan label provider jika belum ada untuk debugging
     if (!err.message.startsWith("[")) {
       throw new Error(`[${provider.toUpperCase()}] ${err.message}`);
     }

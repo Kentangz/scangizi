@@ -2,11 +2,138 @@
 html { font-size: 16px; -webkit-text-size-adjust: 100%; }
 body {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  background: #EEF2F7;
-  color: #1a1a2e;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   min-height: 100vh;
+  transition: background 0.35s ease, color 0.35s ease;
 }
 button { font-family: inherit; cursor: pointer; }
 img    { max-width: 100%; display: block; }
 ::-webkit-scrollbar       { width: 4px; }
-::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 99px; }
+::-webkit-scrollbar-thumb { background: var(--text-tertiary); border-radius: 99px; }
+
+/* ── Design Tokens — Dark Mode (default) ──────────────────── */
+:root {
+  --bg-primary: #0F1117;
+  --bg-secondary: #1A1D27;
+  --bg-card: #1E2130;
+  --bg-card-elevated: #252838;
+  --bg-input: #2A2D3A;
+  --border-primary: #2E3247;
+  --border-subtle: #252838;
+  --text-primary: #F0F2F5;
+  --text-secondary: #9CA3B4;
+  --text-tertiary: #6B7288;
+  --text-inverse: #0F1117;
+  --accent-primary: #3B82F6;
+  --accent-hover: #60A5FA;
+  --header-gradient: linear-gradient(135deg, #0A1628, #0D2847);
+  --shadow-card: 0 2px 16px rgba(0,0,0,0.35);
+  --shadow-glow: 0 0 24px rgba(59,130,246,0.10);
+  --drop-zone-bg: #1A1D27;
+  --drop-zone-border: #2E3247;
+  --drop-zone-hover-bg: #1E2540;
+  --drop-zone-hover-border: #3B82F6;
+  --divider-color: #2E3247;
+  --info-bg: #0D1B2A;
+  --info-border: #1E3A5F;
+  --info-text: #60A5FA;
+  --warning-bg: #1F1A0A;
+  --warning-border: #5C4A00;
+  --warning-text: #FFD600;
+  --error-bg: #2A0A0A;
+  --error-border: #5C1A1A;
+  --error-text: #FF6B6B;
+  --alert-bg: #1F1A0A;
+  --alert-border: #5C4A00;
+  --alert-text: #FFD600;
+  --extracted-bg: #1A1D27;
+  --extracted-border: #2E3247;
+  --reasoning-bg: #1A1D27;
+  --reasoning-border: #2E3247;
+  --btn-primary-gradient: linear-gradient(135deg, #1D4ED8, #3B82F6);
+  --btn-primary-shadow: 0 3px 12px rgba(59,130,246,0.3);
+  --btn-outline-border: #3B82F6;
+  --btn-outline-text: #60A5FA;
+  --btn-outline-hover-bg: #1E2540;
+  --btn-ghost-text: #6B7288;
+  --btn-ghost-hover-text: #9CA3B4;
+  --preset-bg: #2A2D3A;
+  --preset-border: #3E4255;
+  --preset-text: #9CA3B4;
+  --preset-hover-border: #3B82F6;
+  --preset-hover-bg: #1E2540;
+  --badge-bg: #1E2540;
+  --badge-text: #60A5FA;
+  --nl-inactive-bg: #252838;
+  --nl-inactive-text: #4A4F63;
+  --footer-bg: #1A1D27;
+  --footer-border: #2E3247;
+  --footer-text: #6B7288;
+  --thresh-row-alt: #1A1D27;
+  --thresh-header-border: #2E3247;
+  --code-bg: rgba(255,255,255,0.06);
+}
+
+/* ── Light Mode ────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-primary: #EEF2F7;
+  --bg-secondary: #F8FAFC;
+  --bg-card: #FFFFFF;
+  --bg-card-elevated: #FFFFFF;
+  --bg-input: #F1F5F9;
+  --border-primary: #E5E7EB;
+  --border-subtle: #F1F5F9;
+  --text-primary: #0F1729;
+  --text-secondary: #6B7280;
+  --text-tertiary: #9CA3AF;
+  --text-inverse: #FFFFFF;
+  --accent-primary: #0A3D6B;
+  --accent-hover: #0D5499;
+  --header-gradient: linear-gradient(135deg, #0A3D6B, #0D5499);
+  --shadow-card: 0 1px 8px rgba(0,0,0,0.07);
+  --shadow-glow: none;
+  --drop-zone-bg: #F8FAFC;
+  --drop-zone-border: #CBD5E1;
+  --drop-zone-hover-bg: #EEF6FF;
+  --drop-zone-hover-border: #0A3D6B;
+  --divider-color: #F1F5F9;
+  --info-bg: #F0F9FF;
+  --info-border: #BAE6FD;
+  --info-text: #0369A1;
+  --warning-bg: #FFF8E0;
+  --warning-border: #FFD600;
+  --warning-text: #7A5500;
+  --error-bg: #FFF0F0;
+  --error-border: #FFCCCC;
+  --error-text: #CC0000;
+  --alert-bg: #FFF8E0;
+  --alert-border: #FFD600;
+  --alert-text: #7A5500;
+  --extracted-bg: #F8FAFC;
+  --extracted-border: #E5E7EB;
+  --reasoning-bg: #F8FAFC;
+  --reasoning-border: #E5E7EB;
+  --btn-primary-gradient: linear-gradient(135deg, #0A3D6B, #0D5499);
+  --btn-primary-shadow: 0 3px 10px rgba(10,61,107,0.25);
+  --btn-outline-border: #0A3D6B;
+  --btn-outline-text: #0A3D6B;
+  --btn-outline-hover-bg: #EEF2F7;
+  --btn-ghost-text: #9CA3AF;
+  --btn-ghost-hover-text: #374151;
+  --preset-bg: #F8FAFC;
+  --preset-border: #CBD5E1;
+  --preset-text: #374151;
+  --preset-hover-border: #0A3D6B;
+  --preset-hover-bg: #EEF6FF;
+  --badge-bg: #EEF2F7;
+  --badge-text: #0A3D6B;
+  --nl-inactive-bg: #F1F5F9;
+  --nl-inactive-text: #CBD5E1;
+  --footer-bg: #FFFFFF;
+  --footer-border: #E5E7EB;
+  --footer-text: #9CA3AF;
+  --thresh-row-alt: #FAFAFA;
+  --thresh-header-border: #F1F5F9;
+  --code-bg: rgba(0,0,0,0.06);
+}

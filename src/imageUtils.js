@@ -49,11 +49,8 @@ export async function sanitizeAndCompress(dataUrl, maxDim = 1024, quality = 0.82
 
       const ctx = canvas.getContext("2d");
 
-      // Gambar ke canvas — hanya data piksel yang ditransfer,
-      // semua metadata EXIF (GPS, device, timestamp) ditinggalkan.
       ctx.drawImage(img, 0, 0, w, h);
 
-      // Export sebagai JPEG baru — file baru ini bebas EXIF
       const sanitized = canvas.toDataURL("image/jpeg", quality);
       resolve(sanitized);
     };

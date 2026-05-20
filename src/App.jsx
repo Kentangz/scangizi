@@ -1,5 +1,5 @@
 /**
- * App.jsx — ScanGizi v2
+ * App.jsx — ScanGizi
  * ─────────────────────────────────────────────────────────────
  * State machine untuk semua alur pengguna yang didiskusikan:
  *
@@ -14,7 +14,7 @@
  *  "result_range"    → Fase 3: estimasi rentang dua skenario
  *  "error"           → error yang tidak bisa dipulihkan
  *
- * User flow untuk produk serbuk (sesuai diskusi):
+ * User flow untuk produk serbuk:
  *  Fase 1: AI ekstrak → deteksi gram + tidak ada volume_air_ml
  *  Fase 2: Interrupsi → tawarkan tiga jalur
  *    Jalur A: Foto petunjuk penyajian (foto kedua)
@@ -24,7 +24,7 @@
  * ─────────────────────────────────────────────────────────────
  */
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { analyzeLabel, detectProvider, PROVIDER_LABELS } from "./api.js";
 import { processUserImage } from "./imageUtils.js";
 import {
@@ -48,9 +48,14 @@ function NutriBar({ activeLevel }) {
         const active = l === activeLevel;
         const cfg    = LEVEL_CONFIG[l];
         return (
-          <div key={l} className={`${S.nlBox} ${active ? S.nlActive : S.nlInactive}`}
-            style={active ? { background: cfg.bg, boxShadow: `0 5px 18px ${cfg.bg}55` } : {}}>
-            {l}
+          <div key={l} style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+            <div className={`${S.nlBox} ${active ? S.nlActive : S.nlInactive}`}
+              style={active ? { background: cfg.bg, boxShadow: `0 6px 24px ${cfg.bg}55` } : {}}>
+              {l}
+            </div>
+            {active && (
+              <div className={S.nlLabelText}>{cfg.label}</div>
+            )}
           </div>
         );
       })}
@@ -64,10 +69,12 @@ function ComponentRows({ components }) {
     const cfg = LEVEL_CONFIG[c.level];
     return (
       <div key={i} className={S.compRow}
-        style={{ borderBottom: i < 2 ? "1px solid #F1F5F9" : "none" }}>
+        style={{ borderBottom: i < 2 ? `1px dotted var(--divider-color)` : "none" }}>
         <div className={S.compLeft}>
           <div className={S.compName}>{c.name}</div>
-          <div className={S.compVal}><strong>{c.value}</strong> {c.unit}/100ml</div>
+          <div className={S.compVal}>
+            <span className={S.compValNum}>{c.value}</span> {c.unit}/100ml
+          </div>
           {c.note && <div className={S.compNote}>{c.note}</div>}
           <div className={S.compThresh}>{c.threshold}</div>
         </div>
@@ -89,13 +96,13 @@ function SkenarioCard({ sk, label, isBetter }) {
         </span>
       </div>
       <div style={{ padding: "10px 14px" }}>
-        <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 6 }}>{sk.label}</div>
+        <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 6 }}>{sk.label}</div>
         {sk.components.map((c, i) => (
           <div key={i} style={{
             display: "flex", justifyContent: "space-between",
-            fontSize: 12, padding: "3px 0",
-            borderBottom: i < 2 ? "0.5px solid #F1F5F9" : "none",
-            color: "#374151"
+            fontSize: 12, padding: "4px 0",
+            borderBottom: i < 2 ? "0.5px dotted var(--divider-color)" : "none",
+            color: "var(--text-primary)"
           }}>
             <span>{c.name}</span>
             <span>
@@ -114,10 +121,10 @@ function SkenarioCard({ sk, label, isBetter }) {
 // ── Sub-komponen: Confidence Badge ───────────────────────────
 function ConfidenceBadge({ level }) {
   const cfg = {
-    high:   { bg: "#E8F8E8", c: "#004d00", label: "Akurasi Tinggi" },
-    medium: { bg: "#FFF3CC", c: "#7A5500", label: "Akurasi Sedang" },
-    low:    { bg: "#FFE8E8", c: "#770000", label: "Akurasi Rendah" },
-  }[level] || { bg: "#F1F5F9", c: "#6B7280", label: "Tidak diketahui" };
+    high:   { bg: "#004d00", c: "#4ADE80", label: "Akurasi Tinggi" },
+    medium: { bg: "#5C4A00", c: "#FBBF24", label: "Akurasi Sedang" },
+    low:    { bg: "#5C0000", c: "#FF6B6B", label: "Akurasi Rendah" },
+  }[level] || { bg: "var(--bg-input)", c: "var(--text-secondary)", label: "Tidak diketahui" };
   return (
     <span style={{
       display: "inline-block", padding: "3px 8px",
@@ -141,17 +148,128 @@ export default function App() {
   const [error,     setError]     = useState(null);
   const fileRef = useRef(null);
 
+  // ── Theme state ───────────────────────────────────────────
+  const [isDark, setIsDark] = useState(() => {
+    try {
+      const saved = localStorage.getItem("scangizi-theme");
+      return saved ? saved === "dark" : true;
+    } catch { return true; }
+  });
+
+  const toggleTheme = useCallback(() => {
+    setIsDark(prev => {
+      const next = !prev;
+      try { localStorage.setItem("scangizi-theme", next ? "dark" : "light"); } catch {}
+      return next;
+    });
+  }, []);
+
+  // ── Camera state ──────────────────────────────────────────
+  const [isCameraMode, setIsCameraMode] = useState(false);
+  const [facingMode, setFacingMode] = useState("environment");
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
   const provider = detectProvider();
+
+  // ── Stop kamera — dipanggil di banyak titik ───────────────
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraMode(false);
+  }, []);
+
+  // ── Start kamera ──────────────────────────────────────────
+  const startCamera = useCallback(async (facing) => {
+    const targetFacing = facing || facingMode;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("Browser ini tidak mendukung akses kamera. Silakan gunakan upload foto.");
+      return;
+    }
+    // Stop stream sebelumnya jika ada
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: targetFacing },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      setIsCameraMode(true);
+      setError(null);
+    } catch (err) {
+      if (err.name === "NotAllowedError") {
+        setError("Akses kamera ditolak. Izinkan akses kamera di pengaturan browser, atau gunakan upload foto.");
+      } else if (err.name === "NotFoundError") {
+        setError("Tidak ada kamera yang ditemukan di perangkat ini. Silakan gunakan upload foto.");
+      } else {
+        setError("Gagal mengakses kamera: " + err.message + ". Silakan gunakan upload foto.");
+      }
+    }
+  }, [facingMode]);
+
+  // ── Capture frame dari video stream ────────────────────────
+  const captureFrame = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    // Jika kamera depan, mirror gambar saat capture
+    if (facingMode === "user") {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0);
+    // Convert canvas ke Blob → File → processUserImage pipeline
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], "camera-capture.jpg", { type: "image/jpeg" });
+      try {
+        stopCamera();
+        const processed = await processUserImage(file);
+        setImgData(processed);
+      } catch (err) {
+        setError(err.message);
+      }
+    }, "image/jpeg", 0.92);
+  }, [facingMode, stopCamera]);
+
+  // ── Flip kamera (depan/belakang) ──────────────────────────
+  const flipCamera = useCallback(() => {
+    const newFacing = facingMode === "environment" ? "user" : "environment";
+    setFacingMode(newFacing);
+    startCamera(newFacing);
+  }, [facingMode, startCamera]);
+
+  // ── Lifecycle: stop kamera saat state berubah atau unmount ─
+  useEffect(() => {
+    if (uiState !== "idle") {
+      stopCamera();
+    }
+    return () => stopCamera();
+  }, [uiState, stopCamera]);
 
   // ── Reset ke state awal ───────────────────────────────────
   const reset = useCallback(() => {
+    stopCamera();
     setUiState("idle");
     setImgData(null);
     setExtracted(null);
     setResult(null);
     setManualAir(150);
     setError(null);
-  }, []);
+  }, [stopCamera]);
 
   // ── Handle file input ─────────────────────────────────────
   const handleFile = useCallback(async (e) => {
@@ -159,7 +277,6 @@ export default function App() {
     if (!file) return;
     setError(null);
     try {
-      // Sanitasi EXIF + kompres sebelum disimpan di state
       const processed = await processUserImage(file);
       setImgData(processed);
     } catch (err) {
@@ -171,6 +288,7 @@ export default function App() {
   // ── Scan: kirim ke AI dan routing hasil ──────────────────
   const scan = async () => {
     if (!imgData) return;
+    stopCamera();
     setUiState("scanning");
     setError(null);
 
@@ -198,19 +316,15 @@ export default function App() {
       const isSerbuk = raw.satuan_saji === "g";
 
       if (!isSerbuk) {
-        // Produk cair — kalkulasi langsung
         const r = calculateLiquid(raw);
         setResult(r);
         setUiState("result_liquid");
       } else {
-        // Produk serbuk — cek apakah volume air tersedia
         if (raw.volume_air_ml && raw.volume_air_ml > 0) {
-          // AI berhasil baca petunjuk penyajian
           const r = calculatePowder(raw, raw.volume_air_ml);
           setResult(r);
           setUiState("result_powder");
         } else {
-          // Fase 2: volume air tidak diketahui → interrupsi
           setUiState("powder_interrupt");
         }
       }
@@ -231,7 +345,6 @@ export default function App() {
     setUiState("scanning");
     try {
       const processed = await processUserImage(file);
-      // Kirim foto kedua dengan prompt spesifik mencari volume air
       const raw2 = await analyzeLabel(processed.base64);
       const volAir = raw2.volume_air_ml || raw2.ukuran_sajian_nilai;
       if (volAir && volAir > 0) {
@@ -239,7 +352,6 @@ export default function App() {
         setResult(r);
         setUiState("result_powder");
       } else {
-        // Foto kedua juga tidak berhasil → tawarkan manual/range
         setError("Petunjuk penyajian tidak ditemukan di foto ini. Coba input manual atau estimasi rentang.");
         setUiState("powder_interrupt");
       }
@@ -276,18 +388,23 @@ export default function App() {
 
   // ── RENDER ────────────────────────────────────────────────
   return (
-    <div className={S.root}>
+    <div className={S.root} data-theme={isDark ? "dark" : "light"}>
       {/* ── Header ─────────────────────────────────────── */}
       <header className={S.header}>
         <div>
           <div className={S.headerTitle}>🥤 ScanGizi</div>
           <div className={S.headerSub}>Estimasi Nutri-Level · KMK HK.01.07/MENKES/301/2026</div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
-          {provider
-            ? <span className={S.providerBadge}>✅ {PROVIDER_LABELS[provider.provider]}</span>
-            : <span className={`${S.providerBadge} ${S.providerError}`}>⚠️ No API Key</span>
-          }
+        <div className={S.headerRight}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button className={S.themeToggle} onClick={toggleTheme} aria-label="Toggle theme">
+              {isDark ? "☀️" : "🌙"}
+            </button>
+            {provider
+              ? <span className={S.providerBadge}>✅ {PROVIDER_LABELS[provider.provider]}</span>
+              : <span className={`${S.providerBadge} ${S.providerError}`}>⚠️ No API Key</span>
+            }
+          </div>
           {uiState !== "idle" && (
             <button className={S.resetBtn} onClick={reset}>← Mulai Ulang</button>
           )}
@@ -300,7 +417,7 @@ export default function App() {
             IDLE — Upload / Kamera
         ═══════════════════════════════════════════════ */}
         {(uiState === "idle") && (
-          <section className={S.card} style={{ animation: "slideUp .3s ease-out" }}>
+          <section className={S.card} style={{ animation: "slideUp .4s ease-out" }}>
             {!provider && (
               <div className={S.alertBox}>
                 <strong>⚠️ Belum ada API key</strong>
@@ -315,43 +432,76 @@ export default function App() {
               Pastikan seluruh tabel terlihat jelas dan tidak buram.
             </p>
 
-            {/* Drop zone */}
-            <div className={`${S.dropZone} ${imgData ? S.dropHasImg : ""}`}
-              onClick={() => fileRef.current?.click()}
-              onDragOver={e => e.preventDefault()}
-              onDrop={e => {
-                e.preventDefault();
-                const f = e.dataTransfer.files[0];
-                if (f?.type.startsWith("image/")) {
-                  const dt = new DataTransfer(); dt.items.add(f);
-                  fileRef.current.files = dt.files;
-                  handleFile({ target: { files: dt.files, value: "" } });
-                }
-              }}>
-              {imgData
-                ? <img src={imgData.dataUrl} className={S.preview} alt="Preview label ING" />
-                : <>
-                    <span className={S.dropIcon}>📸</span>
-                    <span className={S.dropTitle}>Ketuk untuk foto / pilih gambar</span>
-                    <span className={S.dropHint}>Arahkan ke tabel ING · Drag & drop juga bisa</span>
-                  </>
-              }
-            </div>
+            {/* ── Mode Kamera Aktif ─────────────────────── */}
+            {isCameraMode ? (
+              <>
+                <div className={S.cameraContainer}>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className={`${S.cameraVideo} ${facingMode === "user" ? S.cameraVideoFront : ""}`}
+                  />
+                </div>
+                <div className={S.cameraControls}>
+                  <button className={S.closeCameraBtn} onClick={stopCamera} aria-label="Tutup kamera">
+                    ✕
+                  </button>
+                  <button className={S.shutterBtn} onClick={captureFrame} aria-label="Ambil foto" />
+                  <button className={S.flipBtn} onClick={flipCamera} aria-label="Ganti kamera">
+                    🔄
+                  </button>
+                </div>
+                <div className={S.cameraHint}>
+                  Arahkan kamera ke tabel Informasi Nilai Gizi, lalu tekan tombol capture.
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Drop zone */}
+                <div className={`${S.dropZone} ${imgData ? S.dropHasImg : S.dropZoneIdle}`}
+                  onClick={() => fileRef.current?.click()}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => {
+                    e.preventDefault();
+                    const f = e.dataTransfer.files[0];
+                    if (f?.type.startsWith("image/")) {
+                      const dt = new DataTransfer(); dt.items.add(f);
+                      fileRef.current.files = dt.files;
+                      handleFile({ target: { files: dt.files, value: "" } });
+                    }
+                  }}>
+                  {imgData
+                    ? <img src={imgData.dataUrl} className={S.preview} alt="Preview label ING" />
+                    : <>
+                        <span className={S.dropIcon}>📸</span>
+                        <span className={S.dropTitle}>Ketuk untuk foto / pilih gambar</span>
+                        <span className={S.dropHint}>Arahkan ke tabel ING · JPG, PNG, atau langsung dari kamera</span>
+                      </>
+                  }
+                </div>
 
-            <input ref={fileRef} type="file" accept="image/*" capture="environment"
-              onChange={handleFile} style={{ display: "none" }} />
+                <input ref={fileRef} type="file" accept="image/*" capture="environment"
+                  onChange={handleFile} style={{ display: "none" }} />
 
-            {imgData && (
-              <button className={S.btnGhost} onClick={() => {
-                setImgData(null);
-                fileRef.current?.click();
-              }}>🔄 Ganti foto</button>
+                {imgData ? (
+                  <button className={S.btnGhost} onClick={() => {
+                    setImgData(null);
+                    fileRef.current?.click();
+                  }}>🔄 Ganti foto</button>
+                ) : (
+                  <button className={S.cameraOpenBtn} onClick={() => startCamera()}>
+                    📷 Buka Kamera Langsung
+                  </button>
+                )}
+              </>
             )}
 
             <div style={{ height: 10 }} />
 
             <button className={S.btnPrimary}
-              disabled={!imgData || !provider}
+              disabled={!imgData || !provider || isCameraMode}
               onClick={scan}>
               🔬 Analisis Nutri-Level
             </button>
@@ -383,8 +533,8 @@ export default function App() {
             POWDER INTERRUPT — Fase 2: Produk Serbuk
         ═══════════════════════════════════════════════ */}
         {uiState === "powder_interrupt" && extracted && (
-          <section className={S.card} style={{ animation: "slideUp .3s ease-out" }}>
-            <div className={S.sectionBadge} style={{ background: "#FFF3CC", color: "#7A5500" }}>
+          <section className={S.card} style={{ animation: "slideUp .4s ease-out" }}>
+            <div className={S.sectionBadge} style={{ background: "var(--warning-bg)", color: "var(--warning-text)" }}>
               📦 Produk Serbuk Terdeteksi
             </div>
 
@@ -398,8 +548,8 @@ export default function App() {
             {/* Data yang sudah berhasil diekstrak */}
             <div className={S.extractedBox}>
               <div className={S.sectionLabel}>✅ Data yang berhasil dibaca</div>
-              {extracted.nama_produk && <div style={{ fontSize: 13, fontWeight: 700, color: "#374151", marginBottom: 4 }}>{extracted.nama_produk}</div>}
-              <div style={{ fontSize: 12, color: "#6B7280", display: "flex", flexWrap: "wrap", gap: "6px 16px" }}>
+              {extracted.nama_produk && <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>{extracted.nama_produk}</div>}
+              <div style={{ fontSize: 12, color: "var(--text-secondary)", display: "flex", flexWrap: "wrap", gap: "6px 16px" }}>
                 <span>Gula: <strong>{extracted.total_gula_g}g</strong></span>
                 <span>Natrium: <strong>{extracted.natrium_mg}mg</strong></span>
                 <span>Lemak Jenuh: <strong>{extracted.lemak_jenuh_g}g</strong></span>
@@ -440,7 +590,7 @@ export default function App() {
                     onChange={e => setManualAir(parseInt(e.target.value) || 150)}
                     className={S.numInput}
                   />
-                  <span style={{ fontSize: 13, color: "#6B7280", whiteSpace: "nowrap" }}>ml air</span>
+                  <span style={{ fontSize: 13, color: "var(--text-secondary)", whiteSpace: "nowrap" }}>ml air</span>
                   <button className={S.btnPrimarySmall} onClick={applyManualAir}>
                     Hitung →
                   </button>
@@ -449,7 +599,7 @@ export default function App() {
                 <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                   {[100, 150, 200, 250].map(v => (
                     <button key={v} className={S.presetBtn}
-                      style={{ background: manualAir === v ? "#0A3D6B" : "", color: manualAir === v ? "#fff" : "" }}
+                      style={{ background: manualAir === v ? "var(--accent-primary)" : "", color: manualAir === v ? "#fff" : "" }}
                       onClick={() => setManualAir(v)}>{v}ml</button>
                   ))}
                 </div>
@@ -457,7 +607,7 @@ export default function App() {
             )}
 
             {/* ── Jalur C / Fase 3: Estimasi Rentang ─── */}
-            <div className={S.jalurCard} style={{ borderColor: "#CBD5E1" }}>
+            <div className={S.jalurCard} style={{ borderColor: "var(--border-primary)" }}>
               <div className={S.jalurTitle}>⚡ Jalur C — Estimasi Rentang Cepat</div>
               <p className={S.jalurDesc}>
                 Tampilkan dua skenario (pekat & encer) berdasarkan standar umum.
@@ -476,18 +626,19 @@ export default function App() {
         {uiState === "result_liquid" && result && (() => {
           const ls = LEVEL_CONFIG[result.level];
           return (
-            <section className={S.card} style={{ animation: "slideUp .35s ease-out" }}>
+            <section className={S.card} style={{ animation: "slideUp .4s ease-out" }}>
+              <div className={S.resultHero} style={{ background: `linear-gradient(135deg, ${ls.bg}, ${ls.bg}88)` }} />
               <div className={S.sectionBadge} style={{ background: ls.light, color: ls.dark }}>
                 ✅ Hasil Estimasi
               </div>
 
               {result.namaProduk && (
                 <div style={{ marginBottom: 6 }}>
-                  <div style={{ fontSize: 11, color: "#9CA3AF", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.8px" }}>Produk</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0F1729" }}>{result.namaProduk}</div>
+                  <div className={S.productLabel}>Produk</div>
+                  <div className={S.productName}>{result.namaProduk}</div>
                 </div>
               )}
-              <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>
+              <div className={S.productMeta}>
                 Ukuran sajian: <strong>{result.sajiMl} ml</strong>
                 <span style={{ marginLeft: 10 }}><ConfidenceBadge level={result.confidence} /></span>
               </div>
@@ -536,18 +687,19 @@ export default function App() {
         {uiState === "result_powder" && result && (() => {
           const ls = LEVEL_CONFIG[result.level];
           return (
-            <section className={S.card} style={{ animation: "slideUp .35s ease-out" }}>
+            <section className={S.card} style={{ animation: "slideUp .4s ease-out" }}>
+              <div className={S.resultHero} style={{ background: `linear-gradient(135deg, ${ls.bg}, ${ls.bg}88)` }} />
               <div className={S.sectionBadge} style={{ background: ls.light, color: ls.dark }}>
                 ✅ Hasil Estimasi — Produk Serbuk
               </div>
 
               {result.namaProduk && (
                 <div style={{ marginBottom: 6 }}>
-                  <div style={{ fontSize: 11, color: "#9CA3AF", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.8px" }}>Produk</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0F1729" }}>{result.namaProduk}</div>
+                  <div className={S.productLabel}>Produk</div>
+                  <div className={S.productName}>{result.namaProduk}</div>
                 </div>
               )}
-              <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>
+              <div className={S.productMeta}>
                 {result.sajiG}g serbuk + {result.volumeAirMl}ml air
                 = <strong>{result.volumeTotal}ml minuman jadi</strong>
               </div>
@@ -585,8 +737,8 @@ export default function App() {
             RESULT RANGE — Fase 3: Estimasi Rentang
         ═══════════════════════════════════════════════ */}
         {uiState === "result_range" && result && (
-          <section className={S.card} style={{ animation: "slideUp .35s ease-out" }}>
-            <div className={S.sectionBadge} style={{ background: "#FFF3CC", color: "#7A5500" }}>
+          <section className={S.card} style={{ animation: "slideUp .4s ease-out" }}>
+            <div className={S.sectionBadge} style={{ background: "var(--warning-bg)", color: "var(--warning-text)" }}>
               ⚡ Estimasi Rentang — Fase 3
             </div>
 
@@ -651,7 +803,7 @@ export default function App() {
               </thead>
               <tbody>
                 {THRESH.map((row, i) => (
-                  <tr key={i} style={{ background: i % 2 === 1 ? "#FAFAFA" : "#fff" }}>
+                  <tr key={i} style={{ background: i % 2 === 1 ? "var(--thresh-row-alt)" : "transparent" }}>
                     <td>{row.name}</td>
                     {["A","B","C","D"].map(l => (
                       <td key={l} style={{ textAlign: "center" }}>{row[l]}</td>
@@ -669,7 +821,7 @@ export default function App() {
       </main>
 
       <footer className={S.footer}>
-        ScanGizi v2 · Estimasi berbasis AI · Sumber: KMK HK.01.07/MENKES/301/2026
+        ScanGizi · Estimasi berbasis AI · Sumber: KMK HK.01.07/MENKES/301/2026
       </footer>
 
       <style>{`
