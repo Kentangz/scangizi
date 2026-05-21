@@ -1,13 +1,8 @@
 /**
  * api.js
  * ─────────────────────────────────────────────────────────────
- * Abstraksi multi-provider Vision LLM dengan prompt engineering
+ * Abstraksi Vision LLM (Google Gemini) dengan prompt engineering
  * komprehensif untuk ekstraksi label ING yang andal.
- *
- * Provider yang didukung:
- * - Google Gemini  (VITE_GEMINI_API_KEY)
- * - OpenAI GPT-4o  (VITE_OPENAI_API_KEY)
- * - Anthropic      (VITE_ANTHROPIC_API_KEY)
  *
  * Teknik prompt engineering yang diterapkan:
  * 1. Chain-of-Thought — reasoning sebelum ekstraksi
@@ -18,6 +13,8 @@
  * 6. Negative example injection — hindari pattern completion
  * ─────────────────────────────────────────────────────────────
  */
+
+import { validateAIResponse, ValidationError } from "./security.js";
 
 // ── System Prompt ─────────────────────────────────────────────
 const SYSTEM_PROMPT = `Kamu adalah sistem ekstraksi data label "Informasi Nilai Gizi" (ING) pada kemasan produk Indonesia. Tugasmu adalah membaca tabel ING secara akurat dan mengembalikan data terstruktur.
@@ -129,6 +126,78 @@ function parseJSON(text) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Rate Limiting — Client-side (localStorage)
+// Rate limiting berbasis localStorage — melindungi quota dari
+// penggunaan normal yang berlebihan, BUKAN dari penyerang yang
+// bisa bypass dengan clear localStorage atau incognito. Untuk
+// proteksi sesungguhnya, migrasikan ke Vercel Edge Middleware
+// dengan IP-based rate limiting.
+// ─────────────────────────────────────────────────────────────
+const RL_KEY = "scangizi_rl";
+const RL_WINDOW_MS = 60 * 60 * 1000; // 60 menit
+const RL_MAX_REQUESTS = 15;
+
+class RateLimitError extends Error {
+  constructor(retryAfterMs) {
+    const menit = Math.ceil(retryAfterMs / 60000);
+    super(`Batas scan tercapai. Coba lagi dalam ${menit} menit.`);
+    this.name = "RateLimitError";
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+export function checkRateLimit() {
+  try {
+    const raw = localStorage.getItem(RL_KEY);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    
+    if (!state || typeof state !== "object" || typeof state.count !== "number" || typeof state.windowStart !== "number") {
+      localStorage.removeItem(RL_KEY);
+      return;
+    }
+
+    const now = Date.now();
+    // Window sudah expired → reset
+    if (now - state.windowStart > RL_WINDOW_MS) {
+      localStorage.setItem(RL_KEY, JSON.stringify({ count: 0, windowStart: now }));
+      return;
+    }
+    if (state.count >= RL_MAX_REQUESTS) {
+      const sisaMs = RL_WINDOW_MS - (now - state.windowStart);
+      throw new RateLimitError(sisaMs);
+    }
+  } catch (err) {
+    if (err instanceof RateLimitError) throw err;
+  }
+}
+
+export function incrementRateLimit() {
+  try {
+    const now = Date.now();
+    const raw = localStorage.getItem(RL_KEY);
+    if (!raw) {
+      localStorage.setItem(RL_KEY, JSON.stringify({ count: 1, windowStart: now }));
+      return;
+    }
+    const state = JSON.parse(raw);
+    if (now - state.windowStart > RL_WINDOW_MS) {
+      localStorage.setItem(RL_KEY, JSON.stringify({ count: 1, windowStart: now }));
+    } else {
+      state.count += 1;
+      localStorage.setItem(RL_KEY, JSON.stringify(state));
+    }
+  } catch {
+    // Abaikan — jangan blokir flow utama
+  }
+}
+
+// Helper untuk development: reset counter tanpa buka DevTools
+export const resetRateLimit = import.meta.env.DEV
+  ? () => { try { localStorage.removeItem(RL_KEY); } catch {} }
+  : undefined;
+
+// ─────────────────────────────────────────────────────────────
 // PROVIDER: Google Gemini
 // ─────────────────────────────────────────────────────────────
 async function callGemini(base64, apiKey) {
@@ -162,7 +231,16 @@ async function callGemini(base64, apiKey) {
 
   const d    = await res.json();
   const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  return parseJSON(text);
+  const parsed = parseJSON(text);
+  try {
+    return validateAIResponse(parsed);
+  } catch (err) {
+    if (err instanceof ValidationError) {
+      console.warn(`[ScanGizi] Validasi AI gagal: ${err.field} — ${err.reason}`);
+      throw new Error("Hasil tidak dapat dibaca. Coba foto ulang dengan pencahayaan lebih baik.");
+    }
+    throw err;
+  }
 }
 
 
@@ -235,6 +313,7 @@ async function analyzeLabelClientSide(base64) {
  * @returns {Promise<Object>} Data JSON hasil ekstraksi AI
  */
 export async function analyzeLabel(base64) {
+  checkRateLimit();
   try {
     const res = await fetch("/api/analyze", {
       method: "POST",
@@ -243,7 +322,17 @@ export async function analyzeLabel(base64) {
     });
 
     if (res.ok) {
-      return await res.json();
+      incrementRateLimit();
+      const data = await res.json();
+      try {
+        return validateAIResponse(data);
+      } catch (err) {
+        if (err instanceof ValidationError) {
+          console.warn(`[ScanGizi] Validasi proxy gagal: ${err.field} — ${err.reason}`);
+          throw new Error("Hasil tidak dapat dibaca. Coba foto ulang dengan pencahayaan lebih baik.");
+        }
+        throw err;
+      }
     }
 
     // Jika serverless mengembalikan status error, tangkap dan throw
@@ -262,7 +351,9 @@ export async function analyzeLabel(base64) {
 
     if (isNetworkOr404) {
       console.warn("[ScanGizi] Proxy serverless tidak tersedia, menggunakan fallback client-side...");
-      return await analyzeLabelClientSide(base64);
+      const result = await analyzeLabelClientSide(base64);
+      incrementRateLimit();
+      return result;
     }
     throw err;
   }

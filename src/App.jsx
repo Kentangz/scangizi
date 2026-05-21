@@ -24,7 +24,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { analyzeLabel, getActiveProvider, detectProvider, PROVIDER_LABELS } from "./api.js";
-import { processUserImage } from "./imageUtils.js";
+import { processUserImage, FileValidationError } from "./imageUtils.js";
 import {
   calculateLiquid, calculatePowder, calculatePowderRange,
   LEVELS, LEVEL_CONFIG,
@@ -296,7 +296,7 @@ export default function App() {
       const processed = await processUserImage(file);
       setImgData(processed);
     } catch (err) {
-      setError(err.message);
+      setError(err instanceof FileValidationError ? err.userMessage : err.message);
     }
     e.target.value = "";
   }, []);
@@ -372,8 +372,13 @@ export default function App() {
         setUiState("powder_interrupt");
       }
     } catch (err) {
-      setError(err.message);
-      setUiState("powder_interrupt");
+      if (err instanceof FileValidationError) {
+        setError(err.userMessage);
+        setUiState("powder_interrupt");
+      } else {
+        setError(err.message);
+        setUiState("powder_interrupt");
+      }
     }
     e.target.value = "";
   };
