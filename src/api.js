@@ -97,17 +97,42 @@ SALAH: {"ukuran_sajian_nilai": 250, "confidence_sajian": "high"}
 BENAR: {"ukuran_sajian_nilai": null, "confidence_sajian": "low",
         "reasoning": "Teks takaran saji tidak terbaca karena buram..."}`;
 
-// ── Parse respons teks menjadi JSON ───────────────────────────
+// ── Parse respons teks menjadi JSON (robust) ─────────────────────
 function parseJSON(text) {
-  const cleaned = text.replace(/```json|```/g, "").trim();
-  return JSON.parse(cleaned);
+  // Strip markdown fences
+  let cleaned = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
+
+  // Jika model menambah teks sebelum/sesudah JSON, coba ekstrak { ... }
+  if (!cleaned.startsWith("{")) {
+    const start = cleaned.indexOf("{");
+    if (start !== -1) cleaned = cleaned.slice(start);
+  }
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (lastBrace !== -1 && lastBrace < cleaned.length - 1) {
+    cleaned = cleaned.slice(0, lastBrace + 1);
+  }
+
+  // Coba parse langsung
+  try {
+    return JSON.parse(cleaned);
+  } catch (_firstErr) {
+    // Repair: trailing commas sebelum } atau ]
+    let repaired = cleaned.replace(/,\s*([}\]])/g, "$1");
+
+    // Repair: truncated JSON — auto-close brace/bracket
+    const opens  = (repaired.match(/{/g) || []).length;
+    const closes = (repaired.match(/}/g) || []).length;
+    if (opens > closes) repaired += "}".repeat(opens - closes);
+
+    return JSON.parse(repaired);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
 // PROVIDER: Google Gemini
 // ─────────────────────────────────────────────────────────────
 async function callGemini(base64, apiKey) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -120,7 +145,11 @@ async function callGemini(base64, apiKey) {
         ],
       }],
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      generationConfig:  { temperature: 0.1, maxOutputTokens: 800 },
+      generationConfig:  {
+        temperature: 0.1,
+        maxOutputTokens: 1200,
+        responseMimeType: "application/json",
+      },
     }),
   });
 
