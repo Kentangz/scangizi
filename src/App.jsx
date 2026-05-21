@@ -23,7 +23,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { analyzeLabel, getActiveProvider, PROVIDER_LABELS } from "./api.js";
+import { analyzeLabel, getActiveProvider, detectProvider, PROVIDER_LABELS } from "./api.js";
 import { processUserImage } from "./imageUtils.js";
 import {
   calculateLiquid, calculatePowder, calculatePowderRange,
@@ -144,7 +144,7 @@ export default function App() {
   const [result,    setResult]    = useState(null);    // hasil kalkulasi
   const [manualAir, setManualAir] = useState(150);     // volume air manual (ml)
   const [error,     setError]     = useState(null);
-  const fileRef = useRef(null);
+  const galleryRef = useRef(null);
   const powderPhotoRef = useRef(null);
 
   // ── Theme state ───────────────────────────────────────────
@@ -175,10 +175,17 @@ export default function App() {
     }
   }, [isCameraMode]);
 
-  const [provider, setProvider] = useState(null);
+  const [provider, setProvider] = useState(() => {
+    const local = detectProvider();
+    return local ? { provider: local.provider, isProxy: false } : null;
+  });
+  const [isCheckingProvider, setIsCheckingProvider] = useState(true);
 
   useEffect(() => {
-    getActiveProvider().then(setProvider);
+    getActiveProvider().then(result => {
+      if (result) setProvider(result);
+      setIsCheckingProvider(false);
+    });
   }, []);
 
   // ── Stop kamera — dipanggil di banyak titik ───────────────
@@ -409,9 +416,11 @@ export default function App() {
             <button className={S.themeToggle} onClick={toggleTheme} aria-label="Toggle theme">
               {isDark ? "☀️" : "🌙"}
             </button>
-            {provider
-              ? <span className={S.providerBadge}>✅ {PROVIDER_LABELS[provider.provider]}</span>
-              : <span className={`${S.providerBadge} ${S.providerError}`}>⚠️ No API Key</span>
+            {isCheckingProvider && !provider
+              ? <span className={S.providerBadge} style={{ opacity: 0.6 }}>⏳ Memeriksa...</span>
+              : provider
+                ? <span className={S.providerBadge}>✅ {PROVIDER_LABELS[provider.provider]}</span>
+                : <span className={`${S.providerBadge} ${S.providerError}`}>⚠️ No API Key</span>
             }
           </div>
           {uiState !== "idle" && (
@@ -427,7 +436,7 @@ export default function App() {
         ═══════════════════════════════════════════════ */}
         {(uiState === "idle") && (
           <section className={S.card} style={{ animation: "slideUp .4s ease-out" }}>
-            {!provider && (
+            {!isCheckingProvider && !provider && (
               <div className={S.alertBox}>
                 <strong>⚠️ Belum ada API key</strong>
                 <p>Salin <code>.env.example</code> → <code>.env</code>, isi API key, lalu <code>npm run dev</code>.</p>
@@ -470,15 +479,13 @@ export default function App() {
               <>
                 {/* Drop zone */}
                 <div className={`${S.dropZone} ${imgData ? S.dropHasImg : S.dropZoneIdle}`}
-                  onClick={() => fileRef.current?.click()}
+                  onClick={() => galleryRef.current?.click()}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => {
                     e.preventDefault();
                     const f = e.dataTransfer.files[0];
                     if (f?.type.startsWith("image/")) {
-                      const dt = new DataTransfer(); dt.items.add(f);
-                      fileRef.current.files = dt.files;
-                      handleFile({ target: { files: dt.files, value: "" } });
+                      handleFile({ target: { files: e.dataTransfer.files, value: "" } });
                     }
                   }}>
                   {imgData
@@ -491,13 +498,13 @@ export default function App() {
                   }
                 </div>
 
-                <input ref={fileRef} type="file" accept="image/*" capture="environment"
+                <input ref={galleryRef} type="file" accept="image/*"
                   onChange={handleFile} style={{ display: "none" }} />
 
                 {imgData ? (
                   <button className={S.btnGhost} onClick={() => {
                     setImgData(null);
-                    fileRef.current?.click();
+                    galleryRef.current?.click();
                   }}>🔄 Ganti foto</button>
                 ) : (
                   <button className={S.cameraOpenBtn} onClick={() => startCamera()}>
@@ -510,7 +517,7 @@ export default function App() {
             <div style={{ height: 10 }} />
 
             <button className={S.btnPrimary}
-              disabled={!imgData || !provider || isCameraMode}
+              disabled={!imgData || (!provider && !isCheckingProvider) || isCameraMode}
               onClick={scan}>
               🔬 Analisis Nutri-Level
             </button>
