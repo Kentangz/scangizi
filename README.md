@@ -9,7 +9,7 @@ Kalkulasi mengacu pada **KMK HK.01.07/MENKES/301/2026 Lampiran A**.
 
 ```bash
 npm install
-cp .env.example .env   # → isi salah satu API key
+cp .env.example .env   # → isi VITE_GEMINI_API_KEY
 npm run dev            # → buka http://localhost:5173
 ```
 
@@ -17,22 +17,26 @@ npm run dev            # → buka http://localhost:5173
 
 ## 🔑 Konfigurasi API Key
 
-ScanGizi mendukung arsitektur ganda untuk kemudahan development lokal dan keamanan production:
+ScanGizi menggunakan **Google Gemini** (`gemini-2.5-flash-lite`) sebagai satu-satunya provider AI.
 
-### 1. Keamanan Production (Vercel Serverless Proxy)
-Untuk menghindari kebocoran API Key di bundle JavaScript publik, ScanGizi menggunakan Vercel Serverless Functions di folder `/api`. API Key disimpan secara aman di backend. Daftarkan variabel berikut di dashboard Vercel Anda (**tanpa** prefix `VITE_`):
+### Development Lokal
+Tambahkan key di file `.env` (prefix `VITE_` diperlukan agar Vite meng-expose ke browser):
 
-* `GEMINI_API_KEY` (Rekomendasi default)
+```env
+VITE_GEMINI_API_KEY=AIza...
+```
+
+Dapatkan API key gratis di [aistudio.google.com](https://aistudio.google.com) (~1.500 req/hari pada tier gratis).
+
+### Production (Vercel)
+Daftarkan di Vercel Dashboard → **Settings → Environment Variables** **tanpa** prefix `VITE_`:
+
+```
+GEMINI_API_KEY =
+```
 
 > [!WARNING]
-> **JANGAN PERNAH** menambahkan prefix `VITE_` pada di .env untuk production.
-
-### 2. Development Lokal (Client-Side Fallback)
-Untuk development lokal biasa (`npm run dev`), jika serverless proxy tidak terdeteksi, aplikasi akan otomatis beralih ke direct client-side call. Daftarkan API Key Anda di file `.env` lokal:
-
-| Provider | Variabel | Link Pembuatan |
-|---|---|---|
-| Google Gemini| `VITE_GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) |
+> Jangan pernah menamai variabel `VITE_GEMINI_API_KEY` di .env saat production.
 
 ---
 
