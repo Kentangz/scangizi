@@ -21,11 +21,10 @@ Isi salah satu di file `.env`:
 
 | Provider | Variabel | Info |
 |---|---|---|
-| **Google Gemini** ⭐ | `VITE_GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) |
+| Google Gemini| `VITE_GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) |
 | OpenAI GPT-4o | `VITE_OPENAI_API_KEY` |  [platform.openai.com](https://platform.openai.com) |
-| Anthropic Claude | `VITE_ANTHROPIC_API_KEY` | . [console.anthropic.com](https://console.anthropic.com) |
+| Anthropic Claude | `VITE_ANTHROPIC_API_KEY` |  [console.anthropic.com](https://console.anthropic.com) |
 
-> ⚠️ Jangan commit `.env` ke Git — sudah dikecualikan di `.gitignore`
 
 ---
 
@@ -73,6 +72,13 @@ src/
 - Strip EXIF otomatis via Canvas API re-encode (GPS, device ID, timestamp dihapus)
 - Kompresi ke max 1024px sebelum dikirim ke API
 
+### ✅ Kamera Langsung (Live Camera)
+- Viewfinder kamera real-time via `getUserMedia()` API langsung di dalam aplikasi
+- Tombol capture, flip kamera (depan/belakang), dan close
+- Stream kamera di-stop otomatis saat user keluar dari mode kamera, berpindah state, atau menutup aplikasi
+- Graceful fallback ke file input jika browser tidak mendukung atau permission ditolak
+- Hasil capture melewati pipeline sanitasi yang sama (strip EXIF, kompres) sebelum dikirim ke AI
+
 ### ✅ Unit Tests
 ```bash
 npm test
@@ -103,6 +109,12 @@ Sachet 25g kopi + 15g gula, diseduh 150ml air:
 - Asumsi naif (÷25): gula = 60g/100ml → Level D (SALAH)
 - Benar (÷175): gula = 8.57g/100ml → Level C (BENAR)
 Selisih faktor 7× yang mengubah keputusan kesehatan pengguna.
+
+---
+
+## 🌐 Browser Compatibility
+
+Fitur kamera langsung membutuhkan browser modern dengan dukungan MediaDevices API (Chrome, Firefox, Safari, Edge — semua versi 2020+). Pada browser yang tidak mendukung atau jika pengguna menolak izin kamera, aplikasi secara otomatis fallback ke file input biasa tanpa kehilangan fungsionalitas.
 
 ---
 

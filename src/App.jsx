@@ -8,8 +8,6 @@
  *  "scanning"        → AI sedang memproses
  *  "result_liquid"   → hasil untuk produk cair (normal)
  *  "powder_interrupt"→ produk serbuk terdeteksi, info air tidak ada
- *  "powder_manual"   → pengguna memilih input volume air manual
- *  "powder_photo"    → pengguna diminta foto petunjuk penyajian
  *  "result_powder"   → hasil kalkulasi serbuk (volume air diketahui)
  *  "result_range"    → Fase 3: estimasi rentang dua skenario
  *  "error"           → error yang tidak bisa dipulihkan
@@ -29,7 +27,7 @@ import { analyzeLabel, detectProvider, PROVIDER_LABELS } from "./api.js";
 import { processUserImage } from "./imageUtils.js";
 import {
   calculateLiquid, calculatePowder, calculatePowderRange,
-  LEVELS, LEVEL_CONFIG, POWDER_WATER_RANGES, detectPowderCategory,
+  LEVELS, LEVEL_CONFIG,
 } from "./nutriLevel.js";
 import S from "./App.module.css";
 
@@ -85,7 +83,7 @@ function ComponentRows({ components }) {
 }
 
 // ── Sub-komponen: Kartu Skenario (untuk range view) ──────────
-function SkenarioCard({ sk, label, isBetter }) {
+function SkenarioCard({ sk, label }) {
   const cfg = LEVEL_CONFIG[sk.level];
   return (
     <div className={S.skenarioCard} style={{ borderColor: cfg.bg }}>
@@ -147,6 +145,7 @@ export default function App() {
   const [manualAir, setManualAir] = useState(150);     // volume air manual (ml)
   const [error,     setError]     = useState(null);
   const fileRef = useRef(null);
+  const powderPhotoRef = useRef(null);
 
   // ── Theme state ───────────────────────────────────────────
   const [isDark, setIsDark] = useState(() => {
@@ -169,6 +168,12 @@ export default function App() {
   const [facingMode, setFacingMode] = useState("environment");
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+
+  useEffect(() => {
+    if (isCameraMode && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [isCameraMode]);
 
   const provider = detectProvider();
 
@@ -346,7 +351,7 @@ export default function App() {
     try {
       const processed = await processUserImage(file);
       const raw2 = await analyzeLabel(processed.base64);
-      const volAir = raw2.volume_air_ml || raw2.ukuran_sajian_nilai;
+      const volAir = raw2.volume_air_ml;
       if (volAir && volAir > 0) {
         const r = calculatePowder(extracted, volAir);
         setResult(r);
@@ -567,17 +572,16 @@ export default function App() {
               </p>
               <input
                 type="file" accept="image/*" capture="environment"
-                id="powder-photo-input"
+                ref={powderPhotoRef}
                 onChange={handlePowderPhoto}
                 style={{ display: "none" }} />
               <button className={S.btnOutline}
-                onClick={() => document.getElementById("powder-photo-input").click()}>
+                onClick={() => powderPhotoRef.current?.click()}>
                 📷 Foto Sisi Lain Kemasan
               </button>
             </div>
 
             {/* ── Jalur B: Input manual ────────────────── */}
-            {uiState === "powder_interrupt" && (
               <div className={S.jalurCard}>
                 <div className={S.jalurTitle}>✏️ Jalur B — Input Volume Air Manual</div>
                 <p className={S.jalurDesc}>
@@ -604,7 +608,6 @@ export default function App() {
                   ))}
                 </div>
               </div>
-            )}
 
             {/* ── Jalur C / Fase 3: Estimasi Rentang ─── */}
             <div className={S.jalurCard} style={{ borderColor: "var(--border-primary)" }}>

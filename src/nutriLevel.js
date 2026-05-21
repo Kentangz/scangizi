@@ -56,7 +56,6 @@ export function worstLevel(...levels) {
 }
 
 export const round1 = (v) => Math.round((v || 0) * 10) / 10;
-export const round2 = (v) => Math.round((v || 0) * 100) / 100;
 
 /**
  * Hitung komponen GGL per 100ml dari data per-sajian.
