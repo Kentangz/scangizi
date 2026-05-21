@@ -1,21 +1,8 @@
 /**
- * api.js
+ * api/analyze.js
  * ─────────────────────────────────────────────────────────────
- * Abstraksi multi-provider Vision LLM dengan prompt engineering
- * komprehensif untuk ekstraksi label ING yang andal.
- *
- * Provider yang didukung:
- * - Google Gemini  (VITE_GEMINI_API_KEY)
- * - OpenAI GPT-4o  (VITE_OPENAI_API_KEY)
- * - Anthropic      (VITE_ANTHROPIC_API_KEY)
- *
- * Teknik prompt engineering yang diterapkan:
- * 1. Chain-of-Thought — reasoning sebelum ekstraksi
- * 2. Multi-source cross-referencing — verifikasi dari 2 sumber
- * 3. Confidence scoring per field — high/medium/low/null
- * 4. Domain knowledge injection — sanity check rentang wajar
- * 5. Explicit failure mode enumeration — kondisi khusus
- * 6. Negative example injection — hindari pattern completion
+ * Serverless function untuk memproses ekstraksi data label ING
+ * secara aman di sisi server menggunakan API Key rahasia.
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -99,10 +86,8 @@ BENAR: {"ukuran_sajian_nilai": null, "confidence_sajian": "low",
 
 // ── Parse respons teks menjadi JSON (robust) ─────────────────────
 function parseJSON(text) {
-  // Strip markdown fences
   let cleaned = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
 
-  // Jika model menambah teks sebelum/sesudah JSON, coba ekstrak { ... }
   if (!cleaned.startsWith("{")) {
     const start = cleaned.indexOf("{");
     if (start !== -1) cleaned = cleaned.slice(start);
@@ -112,28 +97,20 @@ function parseJSON(text) {
     cleaned = cleaned.slice(0, lastBrace + 1);
   }
 
-  // Coba parse langsung
   try {
     return JSON.parse(cleaned);
   } catch (_firstErr) {
-    // Repair: trailing commas sebelum } atau ]
     let repaired = cleaned.replace(/,\s*([}\]])/g, "$1");
-
-    // Repair: truncated JSON — auto-close brace/bracket
     const opens  = (repaired.match(/{/g) || []).length;
     const closes = (repaired.match(/}/g) || []).length;
     if (opens > closes) repaired += "}".repeat(opens - closes);
-
     return JSON.parse(repaired);
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// PROVIDER: Google Gemini
-// ─────────────────────────────────────────────────────────────
+// ── Google Gemini API Call ────────────────────────────────────
 async function callGemini(base64, apiKey) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
-
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -145,7 +122,7 @@ async function callGemini(base64, apiKey) {
         ],
       }],
       systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      generationConfig:  {
+      generationConfig: {
         temperature: 0.1,
         maxOutputTokens: 1200,
         responseMimeType: "application/json",
@@ -156,115 +133,51 @@ async function callGemini(base64, apiKey) {
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
     if (res.status === 429) throw new Error("Rate limit Gemini tercapai. Tunggu 1 menit lalu coba lagi.");
-    if (res.status === 400 || res.status === 403) throw new Error("API key Gemini tidak valid. Cek VITE_GEMINI_API_KEY di file .env");
+    if (res.status === 400 || res.status === 403) throw new Error("API key Gemini tidak valid.");
     throw new Error(e.error?.message || `Gemini HTTP ${res.status}`);
   }
 
-  const d    = await res.json();
+  const d = await res.json();
   const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
   return parseJSON(text);
 }
 
 
 
-// ─────────────────────────────────────────────────────────────
-// Deteksi provider aktif dari .env
-// ─────────────────────────────────────────────────────────────
-export function detectProvider() {
-  const gemini = import.meta.env.VITE_GEMINI_API_KEY;
-  if (gemini) return { provider: "gemini", key: gemini };
-  return null;
-}
-
-export const PROVIDER_LABELS = {
-  gemini: "Google Gemini",
-};
-
-/**
- * Mendapatkan provider yang aktif (bisa dari backend proxy atau local env)
- * @returns {Promise<{provider: string, isProxy: boolean} | null>}
- */
-export async function getActiveProvider() {
-  try {
-    const res = await fetch("/api/status");
-    if (res.ok) {
-      const data = await res.json();
-      if (data.provider) {
-        return { provider: data.provider, isProxy: true };
-      }
-    }
-  } catch (_e) {
-    // Abaikan error, akan fallback ke pengecekan lokal
+// ── Serverless Handler ─────────────────────────────────────────
+export default async function handler(req, res) {
+  // Hanya izinkan method POST
+  if (req.method !== "POST") {
+    res.setHeader("Allow", ["POST"]);
+    return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
 
-  // Fallback ke pengecekan .env lokal
-  const local = detectProvider();
-  return local ? { provider: local.provider, isProxy: false } : null;
-}
-
-/**
- * Panggilan direct client-side (fallback untuk development lokal biasa)
- */
-async function analyzeLabelClientSide(base64) {
-  const detected = detectProvider();
-  if (!detected) {
-    throw new Error(
-      "Tidak ada API key yang dikonfigurasi.\n" +
-      "Salin .env.example → .env lalu isi salah satu API key, kemudian restart server."
-    );
+  const host = req.headers.host || "";
+  const origin = req.headers.origin || req.headers.referer || "";
+  if (origin && !origin.includes(host) && !origin.includes("localhost")) {
+    return res.status(403).json({ error: "Akses ditolak: Origin tidak diizinkan." });
   }
 
-  const { provider, key } = detected;
+  const { base64 } = req.body || {};
+  if (!base64) {
+    return res.status(400).json({ error: "Missing image base64 data" });
+  }
+
+  // Deteksi key di server
+  const gemini = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
+
   try {
-    switch (provider) {
-      case "gemini": return await callGemini(base64, key);
-      default: throw new Error(`Provider tidak dikenal: ${provider}`);
+    if (!gemini) {
+      return res.status(500).json({
+        error: "Tidak ada Google Gemini API key yang dikonfigurasi di server. Silakan hubungi administrator website.",
+      });
     }
+
+    let result = await callGemini(base64, gemini);
+
+    res.setHeader("Cache-Control", "no-store, max-age=0");
+    return res.status(200).json(result);
   } catch (err) {
-    if (!err.message.startsWith("[")) {
-      throw new Error(`[${provider.toUpperCase()}] ${err.message}`);
-    }
-    throw err;
+    return res.status(500).json({ error: err.message });
   }
 }
-
-/**
- * Analisis label ING dari gambar. Mencoba lewat proxy Vercel dulu,
- * jika 404 / gagal, fallback ke direct call client-side.
- * @param {string} base64 - Gambar base64 YANG SUDAH DISANITASI EXIF
- * @returns {Promise<Object>} Data JSON hasil ekstraksi AI
- */
-export async function analyzeLabel(base64) {
-  try {
-    const res = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ base64 }),
-    });
-
-    if (res.ok) {
-      return await res.json();
-    }
-
-    // Jika serverless mengembalikan status error, tangkap dan throw
-    const errData = await res.json().catch(() => ({}));
-    if (res.status === 404) {
-      throw new Error("PROXY_NOT_FOUND");
-    }
-    throw new Error(errData.error || `Serverless Error HTTP ${res.status}`);
-  } catch (err) {
-    // Jika proxy tidak ditemukan (404) atau network error (fetch failed / server lokal tidak jalan)
-    const isNetworkOr404 =
-      err.message === "PROXY_NOT_FOUND" ||
-      err.message.includes("Failed to fetch") ||
-      err.message.includes("fetch failed") ||
-      err.message.includes("NetworkError");
-
-    if (isNetworkOr404) {
-      console.warn("[ScanGizi] Proxy serverless tidak tersedia, menggunakan fallback client-side...");
-      return await analyzeLabelClientSide(base64);
-    }
-    throw err;
-  }
-}
-

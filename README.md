@@ -17,31 +17,51 @@ npm run dev            # → buka http://localhost:5173
 
 ## 🔑 Konfigurasi API Key
 
-Isi salah satu di file `.env`:
+ScanGizi mendukung arsitektur ganda untuk kemudahan development lokal dan keamanan production:
 
-| Provider | Variabel | Info |
+### 1. Keamanan Production (Vercel Serverless Proxy)
+Untuk menghindari kebocoran API Key di bundle JavaScript publik, ScanGizi menggunakan Vercel Serverless Functions di folder `/api`. API Key disimpan secara aman di backend. Daftarkan variabel berikut di dashboard Vercel Anda (**tanpa** prefix `VITE_`):
+
+* `GEMINI_API_KEY` (Rekomendasi default)
+
+> [!WARNING]
+> **JANGAN PERNAH** menambahkan prefix `VITE_` pada di .env untuk production.
+
+### 2. Development Lokal (Client-Side Fallback)
+Untuk development lokal biasa (`npm run dev`), jika serverless proxy tidak terdeteksi, aplikasi akan otomatis beralih ke direct client-side call. Daftarkan API Key Anda di file `.env` lokal:
+
+| Provider | Variabel | Link Pembuatan |
 |---|---|---|
 | Google Gemini| `VITE_GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) |
-| OpenAI GPT-4o | `VITE_OPENAI_API_KEY` |  [platform.openai.com](https://platform.openai.com) |
-| Anthropic Claude | `VITE_ANTHROPIC_API_KEY` |  [console.anthropic.com](https://console.anthropic.com) |
-
 
 ---
 
 ## 🏗️ Struktur Project
 
 ```
-src/
-├── main.jsx              Entry point React
-├── index.css             Global styles
-├── App.jsx               State machine + seluruh UI
-├── App.module.css        Styles
-├── api.js                Multi-provider AI (Gemini/OpenAI/Anthropic)
-├── nutriLevel.js         Logika kalkulasi KMK 301/2026
-├── imageUtils.js         Sanitasi EXIF + kompresi gambar
-└── __tests__/
-    └── nutriLevel.test.js  Unit tests (npm test)
+├── api/
+│   ├── status.js         Serverless function: cek status key aktif
+│   └── analyze.js        Serverless function: API proxy aman (prompt & API call)
+├── src/
+│   ├── main.jsx          Entry point React
+│   ├── index.css         Global styles
+│   ├── App.jsx           State machine + seluruh UI
+│   ├── App.module.css    Styles
+│   ├── api.js            Frontend API wrapper (Proxy fetcher + local fallback)
+│   ├── nutriLevel.js     Logika kalkulasi KMK 301/2026
+│   ├── imageUtils.js     Sanitasi EXIF + kompresi gambar
+│   └── __tests__/
+│       └── nutriLevel.test.js  Unit tests (npm test)
 ```
+
+---
+
+## 🚀 Deployment ke Vercel
+
+1. Hubungkan repository GitHub Anda ke Vercel.
+2. Vercel secara otomatis mendeteksi konfigurasi **Vite** dan folder backend **`/api`**.
+3. Di Vercel Project Settings, masukkan environment variable rahasia (misal `GEMINI_API_KEY`).
+4. Klik **Deploy**. Aplikasi akan mendeteksi backend secara asinkronus dan mengaktifkan mode secure proxy dengan indikasi visual di footer aplikasi.
 
 ---
 

@@ -23,7 +23,7 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { analyzeLabel, detectProvider, PROVIDER_LABELS } from "./api.js";
+import { analyzeLabel, getActiveProvider, PROVIDER_LABELS } from "./api.js";
 import { processUserImage } from "./imageUtils.js";
 import {
   calculateLiquid, calculatePowder, calculatePowderRange,
@@ -175,7 +175,11 @@ export default function App() {
     }
   }, [isCameraMode]);
 
-  const provider = detectProvider();
+  const [provider, setProvider] = useState(null);
+
+  useEffect(() => {
+    getActiveProvider().then(setProvider);
+  }, []);
 
   // ── Stop kamera — dipanggil di banyak titik ───────────────
   const stopCamera = useCallback(() => {
@@ -514,7 +518,10 @@ export default function App() {
             {error && <div className={S.errBox}>⚠️ {error}</div>}
 
             <div className={S.infoBox}>
-              ℹ️ Request dikirim langsung dari browser ke <strong>{provider ? PROVIDER_LABELS[provider.provider] : "—"}</strong>.
+              ℹ️ {provider?.isProxy
+                ? "Request diproses secara aman via Serverless Proxy ke "
+                : "Request dikirim langsung dari browser ke "
+              }<strong>{provider ? PROVIDER_LABELS[provider.provider] : "—"}</strong>.
               Metadata EXIF (GPS, device ID) dihapus otomatis sebelum upload.
             </div>
           </section>
