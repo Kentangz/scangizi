@@ -1,19 +1,14 @@
 /**
  * nutriLevel.js
  * ─────────────────────────────────────────────────────────────
- * Logika kalkulasi Nutri-Level berdasarkan:
- * KMK HK.01.07/MENKES/301/2026, Lampiran A
- *
- * Mendukung:
- * - Produk cairan (ml) → kalkulasi langsung
- * - Produk serbuk (g)  → membutuhkan volume air pelarut
- * - Estimasi rentang   → Fase 3 "jalur cepat" (min/max volume air)
+ * Nutri-Level calculation logic based on KMK HK.01.07/MENKES/301/2026.
+ * Supports liquid products, powder products, and range estimates.
  * ─────────────────────────────────────────────────────────────
  */
 
 export const LEVELS = ["A", "B", "C", "D"];
 
-/** Warna sesuai spesifikasi CMYK KMK hal.10 (dikonversi ke hex) */
+// Colors from the official specification
 export const LEVEL_CONFIG = {
   A: { bg: "#00A000", light: "#E8F8E8", dark: "#004d00", label: "Sangat Baik",     desc: "Kandungan GGL sangat rendah" },
   B: { bg: "#78C800", light: "#EDF7D6", dark: "#3A6200", label: "Baik",            desc: "Kandungan GGL rendah" },
@@ -21,9 +16,9 @@ export const LEVEL_CONFIG = {
   D: { bg: "#CC0000", light: "#FFE8E8", dark: "#770000", label: "Kandungan Tinggi", desc: "Kandungan GGL tinggi" },
 };
 
-// ── Threshold per 100 ml (Lampiran A KMK 301/2026) ───────────
+// --- Threshold check functions ---
 
-/** Gula (g/100ml) — monosakarida + disakarida, TIDAK termasuk laktosa */
+/** Sugar level (g/100ml) - excluding lactose */
 export function getGulaLevel(g) {
   if (g <= 1)  return "A";
   if (g <= 5)  return "B";
@@ -31,7 +26,7 @@ export function getGulaLevel(g) {
   return "D";
 }
 
-/** Garam dihitung dari Natrium (mg/100ml) */
+/** Salt/Sodium level (mg/100ml) */
 export function getGaramLevel(mg) {
   if (mg <= 5)   return "A";
   if (mg <= 120) return "B";
@@ -39,7 +34,7 @@ export function getGaramLevel(mg) {
   return "D";
 }
 
-/** Lemak Jenuh (g/100ml) */
+/** Saturated fat level (g/100ml) */
 export function getLemakLevel(g) {
   if (g <= 0.7) return "A";
   if (g <= 1.2) return "B";
@@ -47,7 +42,7 @@ export function getLemakLevel(g) {
   return "D";
 }
 
-/** Level akhir = komponen terburuk (tertinggi indeksnya) */
+/** Returns the worst level among components */
 export function worstLevel(...levels) {
   return levels.reduce(
     (max, l) => (LEVELS.indexOf(l) > LEVELS.indexOf(max) ? l : max),
@@ -58,13 +53,10 @@ export function worstLevel(...levels) {
 export const round1 = (v) => Math.round((v || 0) * 10) / 10;
 
 /**
- * Hitung komponen GGL per 100ml dari data per-sajian.
- * @param {Object} p  - data ekstraksi
- * @param {number} totalVolumeMl - volume minuman jadi dalam ml
- * @returns {Object}  komponen dan level akhir
+ * Computes components values per 100ml
  */
 function computeComponents(p, totalVolumeMl) {
-  // Gula net = total gula − laktosa (Lampiran A poin 5 KMK)
+  // Net sugar = total sugars - lactose
   const gulaNet  = Math.max(0, (p.total_gula_g || 0) - (p.laktosa_g || 0));
 
   const gula100  = (gulaNet            / totalVolumeMl) * 100;
@@ -108,13 +100,8 @@ function computeComponents(p, totalVolumeMl) {
   return { level: levelFinal, components, penentu: components.find(c => c.level === levelFinal) };
 }
 
-// ─────────────────────────────────────────────────────────────
-// KALKULASI UTAMA — Produk Cairan
-// ─────────────────────────────────────────────────────────────
 /**
- * Hitung Nutri-Level untuk produk cair (satuan_saji = "ml").
- * @param {Object} extracted - output JSON dari AI
- * @returns {Object} hasil kalkulasi lengkap
+ * Calculates Nutri-Level for liquid products
  */
 export function calculateLiquid(extracted) {
   const saji = parseFloat(extracted.ukuran_sajian_nilai);
@@ -136,15 +123,8 @@ export function calculateLiquid(extracted) {
   };
 }
 
-// ─────────────────────────────────────────────────────────────
-// KALKULASI UTAMA — Produk Serbuk dengan Volume Air Diketahui
-// ─────────────────────────────────────────────────────────────
 /**
- * Hitung Nutri-Level untuk produk serbuk ketika volume air diketahui.
- * Volume minuman jadi = massa serbuk (g ≈ ml) + volume air (ml).
- * @param {Object} extracted - output JSON dari AI
- * @param {number} volumeAirMl - volume air pelarut dalam ml
- * @returns {Object} hasil kalkulasi lengkap
+ * Calculates Nutri-Level for powder products with known water volume
  */
 export function calculatePowder(extracted, volumeAirMl) {
   const sajiG = parseFloat(extracted.ukuran_sajian_nilai);
@@ -155,8 +135,7 @@ export function calculatePowder(extracted, volumeAirMl) {
     throw new Error("Volume air tidak valid.");
   }
 
-  // Asumsi fisik: densitas larutan akhir ≈ 1 g/ml
-  // Volume total = massa serbuk (g) + volume air (ml)
+  // Total volume = powder mass (g) + water volume (ml)
   const volumeTotal = sajiG + volumeAirMl;
 
   const { level, components, penentu } = computeComponents(extracted, volumeTotal);
@@ -174,17 +153,7 @@ export function calculatePowder(extracted, volumeAirMl) {
   };
 }
 
-// ─────────────────────────────────────────────────────────────
-// KALKULASI FASE 3 — Estimasi Rentang (Jalur Cepat)
-// Menampilkan DUA skenario (min & max air) alih-alih satu angka
-// untuk menghindari false precision.
-// ─────────────────────────────────────────────────────────────
-
-/**
- * Rentang volume air standar per kategori produk (ml).
- * Batas bawah = kondisi lebih pekat (lebih konservatif untuk kesehatan).
- * Batas atas  = kondisi lebih encer (lebih optimistis).
- */
+// Standard water volume ranges per category
 export const POWDER_WATER_RANGES = {
   kopi:    { min: 150, max: 200, label: "Kopi / Minuman kopi" },
   teh:     { min: 150, max: 250, label: "Teh / Minuman teh" },
@@ -194,9 +163,7 @@ export const POWDER_WATER_RANGES = {
 };
 
 /**
- * Deteksi kategori produk dari nama produk secara sederhana.
- * @param {string|null} namaProduk
- * @returns {string} key dari POWDER_WATER_RANGES
+ * Detects product category from its name
  */
 export function detectPowderCategory(namaProduk) {
   if (!namaProduk) return "lainnya";
@@ -209,10 +176,7 @@ export function detectPowderCategory(namaProduk) {
 }
 
 /**
- * Hitung rentang Nutri-Level untuk produk serbuk tanpa info volume air.
- * Mengembalikan dua skenario: skenario_pekat (min air) dan skenario_encer (max air).
- * @param {Object} extracted
- * @returns {Object} hasil rentang estimasi
+ * Calculates Nutri-Level range for powder products when water volume is unknown
  */
 export function calculatePowderRange(extracted) {
   const sajiG = parseFloat(extracted.ukuran_sajian_nilai);
@@ -243,6 +207,6 @@ export function calculatePowderRange(extracted) {
     rangeLabel:     range.label,
     skenarioPekat,
     skenarioEncer,
-    confidence:     "low", // selalu low karena asumsi
+    confidence:     "low",
   };
 }

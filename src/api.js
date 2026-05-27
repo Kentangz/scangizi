@@ -1,29 +1,21 @@
 /**
  * api.js
  * ─────────────────────────────────────────────────────────────
- * Abstraksi Vision LLM (Google Gemini) dengan prompt engineering
- * komprehensif untuk ekstraksi label ING yang andal.
- *
- * Teknik prompt engineering yang diterapkan:
- * 1. Chain-of-Thought — reasoning sebelum ekstraksi
- * 2. Multi-source cross-referencing — verifikasi dari 2 sumber
- * 3. Confidence scoring per field — high/medium/low/null
- * 4. Domain knowledge injection — sanity check rentang wajar
- * 5. Explicit failure mode enumeration — kondisi khusus
- * 6. Negative example injection — hindari pattern completion
+ * Vision LLM (Google Gemini) abstraction with robust prompt engineering
+ * to extract nutrition information label data reliably.
  * ─────────────────────────────────────────────────────────────
  */
 
 import { validateAIResponse, ValidationError } from "./security.js";
 
-// ── System Prompt ─────────────────────────────────────────────
+// System Prompt
 const SYSTEM_PROMPT = `Kamu adalah sistem ekstraksi data label "Informasi Nilai Gizi" (ING) pada kemasan produk Indonesia. Tugasmu adalah membaca tabel ING secara akurat dan mengembalikan data terstruktur.
 
 PRINSIP UTAMA: Lebih baik mengembalikan null daripada mengarang angka yang tidak terbaca dengan jelas. Ketidakpastian yang jujur lebih baik dari kepercayaan diri yang salah.
 
 Kembalikan HANYA JSON valid — tanpa markdown fence, tanpa komentar, tanpa teks tambahan apapun.`;
 
-// ── User Prompt dengan semua teknik prompt engineering ────────
+// User Prompt
 const USER_PROMPT = `Ikuti prosedur dua langkah berikut dengan ketat.
 
 ━━ LANGKAH 1: OBSERVASI (Chain-of-Thought) ━━━━━━━━━━━━━━━━━━
@@ -94,12 +86,10 @@ SALAH: {"ukuran_sajian_nilai": 250, "confidence_sajian": "high"}
 BENAR: {"ukuran_sajian_nilai": null, "confidence_sajian": "low",
         "reasoning": "Teks takaran saji tidak terbaca karena buram..."}`;
 
-// ── Parse respons teks menjadi JSON (robust) ─────────────────────
+// Robust JSON parsing and repairing from AI response
 function parseJSON(text) {
-  // Strip markdown fences
   let cleaned = text.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
 
-  // Jika model menambah teks sebelum/sesudah JSON, coba ekstrak { ... }
   if (!cleaned.startsWith("{")) {
     const start = cleaned.indexOf("{");
     if (start !== -1) cleaned = cleaned.slice(start);
@@ -109,14 +99,13 @@ function parseJSON(text) {
     cleaned = cleaned.slice(0, lastBrace + 1);
   }
 
-  // Coba parse langsung
   try {
     return JSON.parse(cleaned);
   } catch (_firstErr) {
-    // Repair: trailing commas sebelum } atau ]
+    // Repair trailing commas before closing braces/brackets
     let repaired = cleaned.replace(/,\s*([}\]])/g, "$1");
 
-    // Repair: truncated JSON — auto-close brace/bracket
+    // Repair truncated JSON
     const opens  = (repaired.match(/{/g) || []).length;
     const closes = (repaired.match(/}/g) || []).length;
     if (opens > closes) repaired += "}".repeat(opens - closes);
@@ -125,16 +114,9 @@ function parseJSON(text) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Rate Limiting — Client-side (localStorage)
-// Rate limiting berbasis localStorage — melindungi quota dari
-// penggunaan normal yang berlebihan, BUKAN dari penyerang yang
-// bisa bypass dengan clear localStorage atau incognito. Untuk
-// proteksi sesungguhnya, migrasikan ke Vercel Edge Middleware
-// dengan IP-based rate limiting.
-// ─────────────────────────────────────────────────────────────
+// Client-Side Rate Limiting (localStorage-backed)
 const RL_KEY = "scangizi_rl";
-const RL_WINDOW_MS = 60 * 60 * 1000; // 60 menit
+const RL_WINDOW_MS = 60 * 60 * 1000; // 1 hour window
 const RL_MAX_REQUESTS = 15;
 
 class RateLimitError extends Error {
@@ -158,7 +140,6 @@ export function checkRateLimit() {
     }
 
     const now = Date.now();
-    // Window sudah expired → reset
     if (now - state.windowStart > RL_WINDOW_MS) {
       localStorage.setItem(RL_KEY, JSON.stringify({ count: 0, windowStart: now }));
       return;
@@ -188,18 +169,16 @@ export function incrementRateLimit() {
       localStorage.setItem(RL_KEY, JSON.stringify(state));
     }
   } catch {
-    // Abaikan — jangan blokir flow utama
+    // Ignore storage issues to prevent blocking main execution flow
   }
 }
 
-// Helper untuk development: reset counter tanpa buka DevTools
+// Development helper to reset rate limiter
 export const resetRateLimit = import.meta.env.DEV
   ? () => { try { localStorage.removeItem(RL_KEY); } catch {} }
   : undefined;
 
-// ─────────────────────────────────────────────────────────────
-// PROVIDER: Google Gemini
-// ─────────────────────────────────────────────────────────────
+// Provider Integration: Google Gemini
 async function callGemini(base64, apiKey) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
 
@@ -243,11 +222,7 @@ async function callGemini(base64, apiKey) {
   }
 }
 
-
-
-// ─────────────────────────────────────────────────────────────
-// Deteksi provider aktif dari .env
-// ─────────────────────────────────────────────────────────────
+// Local Environment Provider Detection
 export function detectProvider() {
   const gemini = import.meta.env.VITE_GEMINI_API_KEY;
   if (gemini) return { provider: "gemini", key: gemini };
@@ -259,7 +234,7 @@ export const PROVIDER_LABELS = {
 };
 
 /**
- * Mendapatkan provider yang aktif (bisa dari backend proxy atau local env)
+ * Detects the active provider (proxy or local environment)
  * @returns {Promise<{provider: string, isProxy: boolean} | null>}
  */
 export async function getActiveProvider() {
@@ -272,16 +247,15 @@ export async function getActiveProvider() {
       }
     }
   } catch (_e) {
-    // Abaikan error, akan fallback ke pengecekan lokal
+    // Ignore proxy check error, will fallback to local detection
   }
 
-  // Fallback ke pengecekan .env lokal
   const local = detectProvider();
   return local ? { provider: local.provider, isProxy: false } : null;
 }
 
 /**
- * Panggilan direct client-side (fallback untuk development lokal biasa)
+ * Client-side direct call fallback for development
  */
 async function analyzeLabelClientSide(base64) {
   const detected = detectProvider();
@@ -307,10 +281,10 @@ async function analyzeLabelClientSide(base64) {
 }
 
 /**
- * Analisis label ING dari gambar. Mencoba lewat proxy Vercel dulu,
- * jika 404 / gagal, fallback ke direct call client-side.
- * @param {string} base64 - Gambar base64 YANG SUDAH DISANITASI EXIF
- * @returns {Promise<Object>} Data JSON hasil ekstraksi AI
+ * Main entry point: analyzes the nutrition label from the image.
+ * Tries serverless proxy first, with client-side direct fallback.
+ * @param {string} base64 - EXIF-sanitized base64 image data
+ * @returns {Promise<Object>} Structured JSON data from AI extraction
  */
 export async function analyzeLabel(base64) {
   checkRateLimit();
@@ -335,14 +309,12 @@ export async function analyzeLabel(base64) {
       }
     }
 
-    // Jika serverless mengembalikan status error, tangkap dan throw
     const errData = await res.json().catch(() => ({}));
     if (res.status === 404) {
       throw new Error("PROXY_NOT_FOUND");
     }
     throw new Error(errData.error || `Serverless Error HTTP ${res.status}`);
   } catch (err) {
-    // Jika proxy tidak ditemukan (404) atau network error (fetch failed / server lokal tidak jalan)
     const isNetworkOr404 =
       err.message === "PROXY_NOT_FOUND" ||
       err.message.includes("Failed to fetch") ||
@@ -358,4 +330,3 @@ export async function analyzeLabel(base64) {
     throw err;
   }
 }
-

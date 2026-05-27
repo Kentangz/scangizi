@@ -1,34 +1,20 @@
 /**
  * imageUtils.js
  * ─────────────────────────────────────────────────────────────
- * Utilitas pemrosesan gambar dengan fokus pada:
- * 1. Validasi file (ukuran, tipe, magic bytes)
- * 2. Kompresi (efisiensi bandwidth & token API)
- * 3. Sanitasi privasi (strip EXIF — GPS, device ID, timestamp)
- *
- * CATATAN TEKNIS — Mengapa Canvas Strips EXIF:
- * Ketika gambar di-draw ke HTMLCanvasElement dan di-export
- * via toDataURL(), browser hanya menyalin data piksel.
- * Seluruh metadata EXIF (termasuk GPS coordinates, device info,
- * dan timestamp) tidak ikut di-copy karena ia bukan bagian dari
- * data piksel. Ini adalah sanitasi EXIF yang efektif dan murah.
- *
- * Referensi: UU PDP No.27 Tahun 2022 — data lokasi adalah
- * data pribadi yang membutuhkan consent eksplisit.
+ * Image processing utilities for validation, EXIF sanitization,
+ * and canvas-based compression.
  * ─────────────────────────────────────────────────────────────
  */
-
-// ── Validasi File Upload ─────────────────────────────────────
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
-// Magic byte signatures
+// Magic byte signatures for JPEG, PNG, and WebP
 const MAGIC = {
   jpeg: [0xFF, 0xD8, 0xFF],
   png:  [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
   webpPrefix: [0x52, 0x49, 0x46, 0x46], // "RIFF"
-  webpSuffix: [0x57, 0x45, 0x42, 0x50], // "WEBP" (byte 8-11)
+  webpSuffix: [0x57, 0x45, 0x42, 0x50], // "WEBP" (bytes 8-11)
 };
 
 const VALIDATION_MESSAGES = {
@@ -48,30 +34,31 @@ export class FileValidationError extends Error {
 }
 
 /**
- * Validasi file gambar sebelum diproses.
- * Step 1: cek ukuran, Step 2: cek MIME, Step 3: cek magic bytes.
+ * Validates the image file size, MIME type, and magic bytes.
  * @param {File} file
  * @throws {FileValidationError}
  */
 export async function validateImageFile(file) {
-  // Step 1 — Ukuran file
+  // Step 1: Validate file size
   if (file.size > MAX_FILE_SIZE) {
     throw new FileValidationError("FILE_TOO_LARGE");
   }
 
-  // Step 2 — MIME type (filter awal, bisa di-spoof)
+  // Step 2: Validate MIME type
   if (!ALLOWED_MIME_TYPES.includes(file.type)) {
     throw new FileValidationError("INVALID_FILE_TYPE");
   }
 
-  // Step 3 — Magic bytes (verifikasi isi file sesungguhnya)
+  // Step 3: Validate magic bytes (real file type check)
   const header = await readFileHeader(file, 12);
   if (!matchMagicBytes(header)) {
     throw new FileValidationError("INVALID_MAGIC_BYTES");
   }
 }
 
-/** Baca N byte pertama dari file */
+/**
+ * Reads first N bytes of a file
+ */
 function readFileHeader(file, n) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -81,7 +68,9 @@ function readFileHeader(file, n) {
   });
 }
 
-/** Bandingkan header bytes dengan signatures yang diketahui */
+/**
+ * Matches header bytes against known signatures
+ */
 function matchMagicBytes(bytes) {
   // JPEG: FF D8 FF
   if (bytes[0] === MAGIC.jpeg[0] && bytes[1] === MAGIC.jpeg[1] && bytes[2] === MAGIC.jpeg[2]) {
@@ -91,7 +80,7 @@ function matchMagicBytes(bytes) {
   if (MAGIC.png.every((b, i) => bytes[i] === b)) {
     return true;
   }
-  // WebP: RIFF....WEBP
+  // WebP: "RIFF" prefix and "WEBP" suffix
   if (
     MAGIC.webpPrefix.every((b, i) => bytes[i] === b) &&
     MAGIC.webpSuffix.every((b, i) => bytes[i + 8] === b)
@@ -102,12 +91,11 @@ function matchMagicBytes(bytes) {
 }
 
 /**
- * Proses gambar: kompres + strip EXIF via canvas re-encode.
- *
- * @param {string} dataUrl    - Gambar asli sebagai data URL
- * @param {number} maxDim     - Dimensi maksimum sisi terpanjang (default: 1024px)
- * @param {number} quality    - Kualitas JPEG 0–1 (default: 0.82)
- * @returns {Promise<string>} - Data URL yang sudah dibersihkan dan dikompres
+ * Compresses and sanitizes EXIF data via canvas re-encoding
+ * @param {string} dataUrl - Original image data URL
+ * @param {number} maxDim - Maximum dimension limit
+ * @param {number} quality - JPEG compression quality (0-1)
+ * @returns {Promise<string>} Sanitized and compressed JPEG data URL
  */
 export async function sanitizeAndCompress(dataUrl, maxDim = 1024, quality = 0.82) {
   return new Promise((resolve, reject) => {
@@ -116,7 +104,7 @@ export async function sanitizeAndCompress(dataUrl, maxDim = 1024, quality = 0.82
     img.onload = () => {
       let { width: w, height: h } = img;
 
-      // Hitung dimensi baru dengan mempertahankan aspek rasio
+      // Scale dimensions maintaining aspect ratio
       if (w > maxDim || h > maxDim) {
         if (w > h) {
           h = Math.round((h * maxDim) / w);
@@ -132,9 +120,9 @@ export async function sanitizeAndCompress(dataUrl, maxDim = 1024, quality = 0.82
       canvas.height = h;
 
       const ctx = canvas.getContext("2d");
-
       ctx.drawImage(img, 0, 0, w, h);
 
+      // Re-encoding to JPEG strips all EXIF metadata automatically
       const sanitized = canvas.toDataURL("image/jpeg", quality);
       resolve(sanitized);
     };
@@ -145,9 +133,7 @@ export async function sanitizeAndCompress(dataUrl, maxDim = 1024, quality = 0.82
 }
 
 /**
- * Baca file gambar dari input[type=file] dan kembalikan sebagai data URL.
- * @param {File} file
- * @returns {Promise<string>} data URL
+ * Reads a File object as a data URL
  */
 export function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -159,13 +145,10 @@ export function readFileAsDataUrl(file) {
 }
 
 /**
- * Pipeline lengkap: validasi → baca file → sanitasi EXIF → kompres.
- * Gunakan fungsi ini sebagai satu-satunya entry point untuk
- * memproses gambar dari input pengguna.
- *
+ * Full image processing pipeline: validation -> read -> sanitization -> compression
  * @param {File} file
  * @returns {Promise<{ dataUrl: string, base64: string }>}
- * @throws {FileValidationError} jika file tidak valid
+ * @throws {FileValidationError}
  */
 export async function processUserImage(file) {
   await validateImageFile(file);

@@ -1,32 +1,21 @@
 /**
  * security.js
  * ─────────────────────────────────────────────────────────────
- * Validasi output AI dengan schema whitelist.
- *
- * Prinsip: "allowlist over blocklist" — setiap nilai yang
- * melewati validateAIResponse() dijamin secara semantik masuk
- * akal untuk diproses oleh nutriLevel.js. Apapun yang tidak
- * masuk akal, ditolak.
- *
- * Ini bukan untuk mendeteksi prompt injection secara eksplisit,
- * tapi untuk memastikan output yang tidak sesuai schema tidak
- * pernah sampai ke kalkulasi atau DOM.
+ * Validates AI JSON output against allowlist schemas to ensure
+ * semantic validity before consumption by nutriLevel.js.
  * ─────────────────────────────────────────────────────────────
  */
 
-// ── Error class ──────────────────────────────────────────────
-
 export class ValidationError extends Error {
   constructor(field, reason) {
-    super(`Validasi gagal pada field '${field}': ${reason}`);
+    super(`Validation failed for field '${field}': ${reason}`);
     this.name = "ValidationError";
     this.field = field;
     this.reason = reason;
   }
 }
 
-// ── Whitelist konstanta ──────────────────────────────────────
-
+// Allowlist constants for schema validation
 const ALLOWED_ERRORS = new Set([
   null,
   "no_ing_table_found",
@@ -38,7 +27,7 @@ const ALLOWED_ERRORS = new Set([
 const ALLOWED_SATUAN = new Set(["ml", "g"]);
 const ALLOWED_CONFIDENCE = new Set(["high", "medium", "low"]);
 
-// Range plausibel untuk nilai numerik per saji
+// Plausible numeric ranges per serving
 const NUMERIC_RANGES = {
   ukuran_sajian_nilai: { min: 1, max: 2000 },
   total_gula_g:        { min: 0, max: 200 },
@@ -48,81 +37,78 @@ const NUMERIC_RANGES = {
   volume_air_ml:       { min: 1, max: 5000 },
 };
 
-// ── Helper: sanitasi string ──────────────────────────────────
-
-/** Strip karakter kontrol (codepoint < 32, kecuali newline/tab) */
+/**
+ * Strips ASCII control characters (codepoints < 32 except newline/tab)
+ */
 function stripControlChars(str) {
   return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
 }
 
-// ── Validasi utama ───────────────────────────────────────────
-
 /**
- * Validasi dan sanitasi respons AI.
- * @param {Object} raw - Object JavaScript hasil parse JSON dari AI
- * @returns {Object} Object yang sudah divalidasi dan disanitasi
+ * Validates and sanitizes the parsed AI response structure
+ * @param {Object} raw - Parsed AI JSON output
+ * @returns {Object} Validated and sanitized object
  * @throws {ValidationError}
  */
 export function validateAIResponse(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    throw new ValidationError("root", "Response bukan object yang valid");
+    throw new ValidationError("root", "Response must be a valid object");
   }
 
   const result = {};
 
-  // ── error ──────────────────────────────────────────────
+  // Validate error field
   if (!ALLOWED_ERRORS.has(raw.error === undefined ? null : raw.error)) {
-    throw new ValidationError("error", `Nilai '${String(raw.error).slice(0, 50)}' tidak ada dalam whitelist`);
+    throw new ValidationError("error", `Value '${String(raw.error).slice(0, 50)}' is not in allowlist`);
   }
   result.error = raw.error ?? null;
 
-  // Jika error diset, izinkan semua field lain null
+  // If a valid error is present, allow remaining fields to be null
   if (result.error !== null) {
     return result;
   }
 
-  // ── satuan_saji ────────────────────────────────────────
+  // Validate serving unit (satuan_saji)
   if (!ALLOWED_SATUAN.has(raw.satuan_saji)) {
-    throw new ValidationError("satuan_saji", `Harus 'ml' atau 'g', dapat '${String(raw.satuan_saji).slice(0, 20)}'`);
+    throw new ValidationError("satuan_saji", `Must be 'ml' or 'g', got '${String(raw.satuan_saji).slice(0, 20)}'`);
   }
   result.satuan_saji = raw.satuan_saji;
 
-  // ── confidence fields ──────────────────────────────────
+  // Validate confidence levels
   for (const field of ["confidence_sajian", "confidence_gizi"]) {
     const val = raw[field];
     if (val != null && !ALLOWED_CONFIDENCE.has(val)) {
-      throw new ValidationError(field, `Harus 'high', 'medium', atau 'low', dapat '${String(val).slice(0, 20)}'`);
+      throw new ValidationError(field, `Must be 'high', 'medium', or 'low', got '${String(val).slice(0, 20)}'`);
     }
     result[field] = val ?? null;
   }
 
-  // ── numeric fields ─────────────────────────────────────
+  // Validate and coerce numeric fields
   for (const [field, range] of Object.entries(NUMERIC_RANGES)) {
     let val = raw[field];
 
-    // Null/undefined diizinkan untuk field opsional
     if (val == null) {
       result[field] = null;
       continue;
     }
 
-    // Coerce string → number (AI kadang mengembalikan "35" bukan 35)
+    // Coerce string numbers if returned by AI
     if (typeof val === "string") {
       val = parseFloat(val);
     }
 
     if (typeof val !== "number" || Number.isNaN(val)) {
-      throw new ValidationError(field, `Harus angka, dapat '${String(raw[field]).slice(0, 20)}'`);
+      throw new ValidationError(field, `Must be a number, got '${String(raw[field]).slice(0, 20)}'`);
     }
 
     if (val < range.min || val > range.max) {
-      throw new ValidationError(field, `Nilai ${val} di luar range plausibel (${range.min}–${range.max})`);
+      throw new ValidationError(field, `Value ${val} is out of plausible range (${range.min}-${range.max})`);
     }
 
     result[field] = val;
   }
 
-  // ── nama_produk (opsional, sanitasi string) ────────────
+  // Sanitize product name (nama_produk)
   if (raw.nama_produk != null) {
     let nama = String(raw.nama_produk);
     nama = stripControlChars(nama).trim();
@@ -132,7 +118,7 @@ export function validateAIResponse(raw) {
     result.nama_produk = null;
   }
 
-  // ── reasoning (tidak divalidasi ketat, sanitasi saja) ──
+  // Sanitize reasoning
   if (raw.reasoning != null) {
     let reasoning = String(raw.reasoning);
     reasoning = stripControlChars(reasoning);
