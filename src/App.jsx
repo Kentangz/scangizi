@@ -156,6 +156,7 @@ export default function App() {
   const [result,    setResult]    = useState(null);    // Nutri-level calculation output
   const [manualAir, setManualAir] = useState(150);     // User input for water volume (ml)
   const [error,     setError]     = useState(null);
+  const [zoomImage, setZoomImage] = useState(null);    // State for image lightbox zoom
   const galleryRef     = useRef(null);
   const powderPhotoRef = useRef(null);
 
@@ -166,6 +167,9 @@ export default function App() {
       return saved ? saved === "dark" : true;
     } catch { return true; }
   });
+
+  // Example photo
+  const [exampleOpen, setExampleOpen] = useState(false);
 
   const toggleTheme = useCallback(() => {
     setIsDark(prev => {
@@ -465,6 +469,45 @@ export default function App() {
               Pastikan seluruh tabel terlihat jelas dan tidak buram.
             </p>
 
+            {/* ── Examples of Collapsible Photos ─────────────────────── */}
+            <details
+              className={S.exampleBox}
+              open={exampleOpen}
+              onToggle={(e) => {
+                setExampleOpen(e.currentTarget.open);
+              }}
+            >
+              <summary className={S.exampleBoxSummary}>
+                <i className="ti ti-photo" style={{ fontSize: 14, color: "var(--accent-primary)", flexShrink: 0 }} aria-hidden="true" />
+                <span className={S.exampleBoxSummaryText}>Contoh foto yang benar</span>
+                <span className={S.exampleBoxSummaryBadge}>Panduan</span>
+                <i className={`ti ti-chevron-right ${S.exampleBoxChevron}`} style={{ fontSize: 13 }} aria-hidden="true" />
+              </summary>
+              <div className={S.exampleBoxBody}>
+                <div className={S.exampleImgWrapper} onClick={() => setZoomImage("/contoh-ing.webp")}>
+                  <img
+                    src="/contoh-ing.webp"
+                    alt="Contoh foto tabel ING — seluruh tabel terlihat jelas, tidak buram, tidak terpotong"
+                    className={S.exampleImg}
+                  />
+                </div>
+                <div className={S.exampleChecklist}>
+                  {[
+                    "Seluruh tabel terlihat",
+                    "Teks terbaca jelas",
+                    "Tidak buram",
+                    "Tidak terpotong",
+                  ].map((item) => (
+                    <span key={item} className={S.exampleCheckItem}>
+                      <i className="ti ti-check" style={{ fontSize: 10 }} aria-hidden="true" />
+                      {item}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </details>
+            {/* ────────────────────────────────────────────────── */}
+
             {isCameraMode ? (
               <>
                 <div className={S.cameraContainer}>
@@ -514,7 +557,12 @@ export default function App() {
                   )}
 
                   {imgData
-                    ? <img src={imgData.dataUrl} className={S.preview} alt="Preview label ING" />
+                    ? <div className={S.previewWrapper} onClick={(e) => {
+                        e.stopPropagation();
+                        setZoomImage(imgData.dataUrl);
+                      }}>
+                        <img src={imgData.dataUrl} className={S.preview} alt="Preview label ING" />
+                      </div>
                     : <>
                         <div className={S.dropIcon}>
                           <i className="ti ti-scan" style={{ fontSize: 26, color: "var(--accent-primary)" }} aria-hidden="true" />
@@ -948,6 +996,17 @@ export default function App() {
       <footer className={S.footer}>
         ScanGizi · Estimasi berbasis AI · KMK HK.01.07/MENKES/301/2026
       </footer>
+
+      {zoomImage && (
+        <div className={S.lightboxOverlay} onClick={() => setZoomImage(null)}>
+          <div className={S.lightboxContent} onClick={e => e.stopPropagation()}>
+            <button className={S.lightboxClose} onClick={() => setZoomImage(null)} aria-label="Tutup gambar">
+              <i className="ti ti-x" />
+            </button>
+            <img src={zoomImage} className={S.lightboxImg} alt="Tampilan diperbesar" />
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes slideUp {

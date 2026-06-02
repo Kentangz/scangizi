@@ -733,6 +733,197 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 5px; font-si
   50%       { transform: rotate(8deg); }
 }
 
+/* ── Collapsible Photo Guide ─────────────────────────────────────── */
+.exampleBox {
+  background: var(--bg-card-elevated);
+  border: 1px solid var(--border-primary);
+  border-radius: 14px;
+  margin: 6px 0 14px;
+  overflow: hidden;
+  transition: all 0.25s ease;
+}
+.exampleBox[open] {
+  border-color: var(--accent-bg-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+.exampleBoxSummary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+  transition: background 0.2s ease;
+  user-select: none;
+}
+.exampleBoxSummary::-webkit-details-marker {
+  display: none;
+}
+.exampleBoxSummary:hover {
+  background: var(--border-subtle);
+}
+.exampleBoxSummaryText {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  flex: 1;
+  text-align: left;
+}
+.exampleBoxSummaryBadge {
+  background: var(--badge-bg);
+  color: var(--badge-text);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 99px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.exampleBoxChevron {
+  color: var(--text-secondary);
+  transition: transform 0.25s ease;
+}
+.exampleBox[open] .exampleBoxChevron {
+  transform: rotate(90deg);
+}
+.exampleBoxBody {
+  padding: 14px;
+  border-top: 1px solid var(--divider);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-card);
+}
+.exampleImgWrapper {
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  cursor: zoom-in;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: border-color 0.2s ease;
+}
+.exampleImgWrapper:hover {
+  border-color: var(--accent-primary);
+}
+.exampleImg {
+  width: 100%;
+  height: auto;
+  display: block;
+  max-height: 180px;
+  object-fit: contain;
+  transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.exampleImgWrapper:hover .exampleImg {
+  transform: scale(1.06);
+}
+.exampleChecklist {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 12px;
+}
+.exampleCheckItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.exampleCheckItem i {
+  color: var(--success-text);
+  font-weight: 700;
+}
+
+/* ── Image Upload Preview Wrapper & Scale ────────────────────────── */
+.previewWrapper {
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  cursor: zoom-in;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: outline 0.2s ease;
+}
+.previewWrapper:hover {
+  outline: 2px solid var(--accent-primary);
+}
+.preview {
+  width: 100%;
+  border-radius: 12px;
+  max-height: 270px;
+  object-fit: contain;
+  transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.previewWrapper:hover .preview {
+  transform: scale(1.04);
+}
+
+/* ── Image Lightbox Modal ────────────────────────────────────────── */
+.lightboxOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(8px);
+  animation: fadeIn 0.2s ease-out;
+}
+.lightboxContent {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: scaleIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.lightboxClose {
+  position: absolute;
+  top: -48px;
+  right: 0;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 20px;
+  transition: all 0.2s ease;
+}
+.lightboxClose:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.08);
+}
+.lightboxImg {
+  max-width: 100%;
+  max-height: 80vh;
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  object-fit: contain;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes scaleIn {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
 /* ── Responsive ─────────────────────────────────────────────────── */
 @media (max-width: 359px) {
   .main       { padding: 10px 10px 24px; gap: 10px; }
