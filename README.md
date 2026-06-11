@@ -73,19 +73,6 @@ Untuk produk serbuk: volume minuman jadi = massa serbuk (g) + volume air (ml). N
 VITE_GEMINI_API_KEY=
 ```
 
-**Production (Vercel):**
-
-```
-GEMINI_API_KEY=
-```
-
-
----
-
-## Deployment
-
-Hubungkan repo ke Vercel. Vercel mendeteksi konfigurasi Vite dan folder `/api` secara otomatis. Masukkan `GEMINI_API_KEY` di environment variables, lalu deploy. Aplikasi akan mendeteksi backend secara asinkronus dan mengaktifkan mode secure proxy.
-
 ---
 
 ## Development
