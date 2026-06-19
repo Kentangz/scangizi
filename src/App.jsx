@@ -21,6 +21,7 @@ import {
   calculateLiquid, calculatePowder, calculatePowderRange,
   LEVELS, LEVEL_CONFIG,
 } from "./nutriLevel.js";
+import { validateAIResponse, ValidationError } from "./security.js";
 import S from "./App.module.css";
 
 // Reference nutrition threshold table values
@@ -160,6 +161,8 @@ export default function App() {
   const galleryRef     = useRef(null);
   const powderPhotoRef = useRef(null);
 
+  // (Manual & Edit mode states and callbacks relocated below)
+
   // Theme Management
   const [isDark, setIsDark] = useState(() => {
     try {
@@ -294,6 +297,8 @@ export default function App() {
     setResult(null);
     setManualAir(150);
     setError(null);
+    setPreEditState(null);
+    setFormErrors({});
   }, [stopCamera]);
 
   // Handle image upload input
@@ -309,6 +314,144 @@ export default function App() {
     }
     e.target.value = "";
   }, []);
+
+  // States for manual input & edit mode
+  const [preEditState, setPreEditState] = useState(null);
+  const [formValues, setFormValues] = useState({
+    nama_produk: "",
+    satuan_saji: "ml",
+    ukuran_sajian_nilai: "",
+    total_gula_g: "",
+    laktosa_g: "",
+    natrium_mg: "",
+    lemak_jenuh_g: "",
+    volume_air_ml: "",
+  });
+  const [formErrors, setFormErrors] = useState({});
+
+  const enterManualInput = useCallback((initialData = null) => {
+    stopCamera();
+    const data = initialData || extracted || {};
+    setFormValues({
+      nama_produk: data.nama_produk ? String(data.nama_produk) : "",
+      satuan_saji: data.satuan_saji === "g" || data.satuan_saji === "ml" ? data.satuan_saji : "ml",
+      ukuran_sajian_nilai: data.ukuran_sajian_nilai !== undefined && data.ukuran_sajian_nilai !== null ? String(data.ukuran_sajian_nilai) : "",
+      total_gula_g: data.total_gula_g !== undefined && data.total_gula_g !== null ? String(data.total_gula_g) : "",
+      laktosa_g: data.laktosa_g !== undefined && data.laktosa_g !== null ? String(data.laktosa_g) : "",
+      natrium_mg: data.natrium_mg !== undefined && data.natrium_mg !== null ? String(data.natrium_mg) : "",
+      lemak_jenuh_g: data.lemak_jenuh_g !== undefined && data.lemak_jenuh_g !== null ? String(data.lemak_jenuh_g) : "",
+      volume_air_ml: data.volume_air_ml !== undefined && data.volume_air_ml !== null ? String(data.volume_air_ml) : "",
+    });
+    setFormErrors({});
+    setError(null);
+    setUiState("manual_input");
+  }, [extracted, stopCamera]);
+
+  const enterEditMode = useCallback((currentState) => {
+    stopCamera();
+    setPreEditState(currentState);
+    const data = extracted || {};
+    const volAir = data.volume_air_ml !== undefined && data.volume_air_ml !== null 
+      ? String(data.volume_air_ml) 
+      : (currentState === "result_powder" && manualAir ? String(manualAir) : "");
+
+    setFormValues({
+      nama_produk: data.nama_produk ? String(data.nama_produk) : "",
+      satuan_saji: data.satuan_saji === "g" || data.satuan_saji === "ml" ? data.satuan_saji : "ml",
+      ukuran_sajian_nilai: data.ukuran_sajian_nilai !== undefined && data.ukuran_sajian_nilai !== null ? String(data.ukuran_sajian_nilai) : "",
+      total_gula_g: data.total_gula_g !== undefined && data.total_gula_g !== null ? String(data.total_gula_g) : "",
+      laktosa_g: data.laktosa_g !== undefined && data.laktosa_g !== null ? String(data.laktosa_g) : "",
+      natrium_mg: data.natrium_mg !== undefined && data.natrium_mg !== null ? String(data.natrium_mg) : "",
+      lemak_jenuh_g: data.lemak_jenuh_g !== undefined && data.lemak_jenuh_g !== null ? String(data.lemak_jenuh_g) : "",
+      volume_air_ml: volAir,
+    });
+    setFormErrors({});
+    setError(null);
+    setUiState("edit_mode");
+  }, [extracted, manualAir, stopCamera]);
+
+  const cancelEdit = useCallback(() => {
+    if (preEditState) {
+      setUiState(preEditState);
+    } else {
+      setUiState("idle");
+    }
+  }, [preEditState]);
+
+  const submitForm = useCallback((e) => {
+    if (e) e.preventDefault();
+    setFormErrors({});
+    setError(null);
+
+    const errors = {};
+    if (!formValues.ukuran_sajian_nilai) {
+      errors.ukuran_sajian_nilai = "Ukuran sajian wajib diisi";
+    }
+    if (!formValues.total_gula_g) {
+      errors.total_gula_g = "Total gula wajib diisi";
+    }
+    if (!formValues.natrium_mg) {
+      errors.natrium_mg = "Natrium wajib diisi";
+    }
+    if (!formValues.lemak_jenuh_g) {
+      errors.lemak_jenuh_g = "Lemak jenuh wajib diisi";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
+    const parseNum = (val) => {
+      if (val === "" || val === null || val === undefined) return null;
+      const num = Number(val);
+      return Number.isNaN(num) ? val : num;
+    };
+
+    const payload = {
+      error: null,
+      nama_produk: formValues.nama_produk.trim() || null,
+      satuan_saji: formValues.satuan_saji,
+      ukuran_sajian_nilai: parseNum(formValues.ukuran_sajian_nilai),
+      total_gula_g: parseNum(formValues.total_gula_g),
+      natrium_mg: parseNum(formValues.natrium_mg),
+      lemak_jenuh_g: parseNum(formValues.lemak_jenuh_g),
+      laktosa_g: parseNum(formValues.laktosa_g),
+      volume_air_ml: formValues.satuan_saji === "g" ? parseNum(formValues.volume_air_ml) : null,
+      confidence_sajian: "high",
+      confidence_gizi: "high",
+      reasoning: "Diisi secara manual oleh pengguna.",
+    };
+
+    try {
+      const validated = validateAIResponse(payload);
+      setExtracted(validated);
+
+      let r;
+      if (validated.satuan_saji === "ml") {
+        r = calculateLiquid(validated);
+        setUiState("result_liquid");
+      } else {
+        if (validated.volume_air_ml !== null && validated.volume_air_ml !== undefined && validated.volume_air_ml > 0) {
+          r = calculatePowder(validated, validated.volume_air_ml);
+          setUiState("result_powder");
+        } else {
+          r = calculatePowderRange(validated);
+          setUiState("result_range");
+        }
+      }
+      setResult(r);
+    } catch (err) {
+      if (err instanceof ValidationError || err.name === "ValidationError") {
+        setFormErrors(prev => ({
+          ...prev,
+          [err.field]: err.reason,
+        }));
+      } else {
+        setError(err.message);
+      }
+    }
+  }, [formValues]);
 
   // Main scan action to call AI and route the navigation
   const scan = async () => {
@@ -356,7 +499,7 @@ export default function App() {
           ? "AI tidak dapat membaca format label. Coba foto ulang dengan pencahayaan lebih baik dan tabel ING terlihat penuh."
           : err.message
       );
-      setUiState("idle");
+      setUiState("error");
     }
   };
 
@@ -380,11 +523,10 @@ export default function App() {
     } catch (err) {
       if (err instanceof FileValidationError) {
         setError(err.userMessage);
-        setUiState("powder_interrupt");
       } else {
         setError(err.message);
-        setUiState("powder_interrupt");
       }
+      setUiState("error");
     }
     e.target.value = "";
   };
@@ -584,10 +726,16 @@ export default function App() {
                     <i className="ti ti-refresh" style={{ fontSize: 13 }} aria-hidden="true" /> Ganti foto
                   </button>
                 ) : (
-                  <button className={S.cameraOpenBtn} onClick={() => startCamera()}>
-                    <i className="ti ti-camera" style={{ fontSize: 15 }} aria-hidden="true" />
-                    Buka Kamera Langsung
-                  </button>
+                  <div style={{ display: "flex", gap: 10, width: "100%" }}>
+                    <button className={S.cameraOpenBtn} style={{ flex: 1 }} onClick={() => startCamera()}>
+                      <i className="ti ti-camera" style={{ fontSize: 15 }} aria-hidden="true" />
+                      Buka Kamera Langsung
+                    </button>
+                    <button className={S.cameraOpenBtn} style={{ flex: 1 }} onClick={() => enterManualInput(null)}>
+                      <i className="ti ti-pencil" style={{ fontSize: 13 }} aria-hidden="true" />
+                      Input Manual
+                    </button>
+                  </div>
                 )}
               </>
             )}
@@ -689,6 +837,10 @@ export default function App() {
                 <span>LJ: <strong style={{ color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{extracted.lemak_jenuh_g}g</strong></span>
               </div>
             </div>
+
+            <button className={S.btnGhost} style={{ marginBottom: 12, marginTop: 4, width: "100%" }} onClick={() => enterEditMode("powder_interrupt")}>
+              <i className="ti ti-pencil" style={{ fontSize: 13 }} aria-hidden="true" /> Edit Data Gizi Terdeteksi
+            </button>
 
             {error && (
               <div className={S.errBox}>
@@ -828,10 +980,16 @@ export default function App() {
               )}
 
               <div style={{ height: 6 }} />
-              <button className={S.btnOutline} onClick={reset}>
-                <i className="ti ti-camera" style={{ fontSize: 15 }} aria-hidden="true" />
-                Scan Produk Lain
-              </button>
+              <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                <button className={S.btnOutline} style={{ flex: 1 }} onClick={reset}>
+                  <i className="ti ti-camera" style={{ fontSize: 14 }} aria-hidden="true" />
+                  Scan Produk Lain
+                </button>
+                <button className={S.btnPrimarySmall} style={{ flex: 1, margin: 0, height: 38 }} onClick={() => enterEditMode("result_liquid")}>
+                  <i className="ti ti-pencil" style={{ fontSize: 14 }} aria-hidden="true" />
+                  Edit Data
+                </button>
+              </div>
               <p className={S.disclaimer}>
                 Estimasi berdasarkan label ING yang terdeteksi AI —
                 bukan klaim resmi Nutri-Level Kemenkes RI (KMK HK.01.07/MENKES/301/2026).
@@ -887,10 +1045,16 @@ export default function App() {
               )}
 
               <div style={{ height: 6 }} />
-              <button className={S.btnOutline} onClick={reset}>
-                <i className="ti ti-camera" style={{ fontSize: 15 }} aria-hidden="true" />
-                Scan Produk Lain
-              </button>
+              <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                <button className={S.btnOutline} style={{ flex: 1 }} onClick={reset}>
+                  <i className="ti ti-camera" style={{ fontSize: 14 }} aria-hidden="true" />
+                  Scan Produk Lain
+                </button>
+                <button className={S.btnPrimarySmall} style={{ flex: 1, margin: 0, height: 38 }} onClick={() => enterEditMode("result_powder")}>
+                  <i className="ti ti-pencil" style={{ fontSize: 14 }} aria-hidden="true" />
+                  Edit Data
+                </button>
+              </div>
               <p className={S.disclaimer}>
                 Estimasi berdasarkan label ING + volume air yang diinput.
                 Hasil aktual bisa berbeda tergantung cara penyajian.
@@ -948,16 +1112,239 @@ export default function App() {
             </div>
 
             <div style={{ height: 14 }} />
-            <button className={S.btnOutline}
-              onClick={() => { setUiState("powder_interrupt"); setError(null); }}>
-              ← Coba Jalur A atau B
-            </button>
-            <button className={S.btnGhost} onClick={reset} style={{ marginTop: 6 }}>
+            <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+              <button className={S.btnOutline} style={{ flex: 1 }} onClick={() => { setUiState("powder_interrupt"); setError(null); }}>
+                ← Coba Jalur A/B
+              </button>
+              <button className={S.btnPrimarySmall} style={{ flex: 1, margin: 0, height: 38 }} onClick={() => enterEditMode("result_range")}>
+                <i className="ti ti-pencil" style={{ fontSize: 14 }} aria-hidden="true" />
+                Edit Data
+              </button>
+            </div>
+            <button className={S.btnGhost} onClick={reset} style={{ marginTop: 6, width: "100%" }}>
               <i className="ti ti-camera" style={{ fontSize: 13 }} aria-hidden="true" /> Scan Produk Lain
             </button>
             <p className={S.disclaimer}>
               Estimasi kasar — bukan klaim resmi Nutri-Level Kemenkes RI.
             </p>
+          </section>
+        )}
+
+        {/* =======================================================
+            ERROR STATE — Error View with Option to Input Manually
+            ======================================================= */}
+        {uiState === "error" && (
+          <section className={S.card} style={{ animation: "slideUp .4s ease-out" }}>
+            <div className={S.errBox}>
+              <i className="ti ti-alert-triangle" style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Gagal Menganalisis Foto</div>
+                <p style={{ margin: 0, fontSize: 13, lineHeight: 1.4 }}>{error}</p>
+              </div>
+            </div>
+            
+            <div style={{ height: 16 }} />
+            
+            <button className={S.btnPrimary} onClick={() => enterManualInput()}>
+              <i className="ti ti-pencil" style={{ fontSize: 15 }} aria-hidden="true" />
+              Input Secara Manual
+            </button>
+            
+            <button className={S.btnOutline} onClick={reset} style={{ marginTop: 8 }}>
+              Mulai Ulang / Ambil Foto Lagi
+            </button>
+          </section>
+        )}
+
+        {/* =======================================================
+            MANUAL INPUT & EDIT MODE STATES — Form view
+            ======================================================= */}
+        {(uiState === "manual_input" || uiState === "edit_mode") && (
+          <section className={S.card} style={{ animation: "slideUp .4s ease-out" }}>
+            <div className={S.sectionBadge}>
+              <i className="ti ti-pencil" style={{ fontSize: 12 }} aria-hidden="true" />
+              {uiState === "manual_input" ? "Input Data Manual" : "Edit Data Gizi"}
+            </div>
+            
+            <h2 className={S.cardTitle}>
+              {uiState === "manual_input" ? "Masukkan Data Gizi" : "Sesuaikan Data Gizi"}
+            </h2>
+            <p className={S.cardDesc}>
+              {uiState === "manual_input"
+                ? "Isi formulir di bawah ini berdasarkan tabel Informasi Nilai Gizi pada kemasan."
+                : "Ubah data hasil pembacaan AI di bawah ini jika terdapat ketidaksesuaian."
+              }
+            </p>
+
+            {/* Collapsible/visual reference of the uploaded image preview */}
+            {imgData && imgData.dataUrl && (
+              <details className={S.reasoningBox} style={{ marginBottom: 16 }}>
+                <summary style={{ fontWeight: 700, fontSize: 12 }}>
+                  <i className="ti ti-photo" style={{ fontSize: 13, marginRight: 5 }} aria-hidden="true" />
+                  Lihat Foto Label Asli
+                </summary>
+                <div style={{ display: "flex", justifyContent: "center", padding: 8, background: "var(--bg-input)", borderRadius: 10, marginTop: 8 }}>
+                  <img
+                    src={imgData.dataUrl}
+                    alt="Pratinjau label ING"
+                    style={{ maxWidth: "100%", maxHeight: 200, objectFit: "contain", borderRadius: 8, cursor: "zoom-in" }}
+                    onClick={() => setZoomImage(imgData.dataUrl)}
+                  />
+                </div>
+              </details>
+            )}
+
+            <form onSubmit={submitForm} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Product Name */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="nama_produk">Nama Produk</label>
+                <input
+                  id="nama_produk"
+                  type="text"
+                  className="form-control"
+                  placeholder="Contoh: Susu Cokelat UHT"
+                  value={formValues.nama_produk}
+                  onChange={e => setFormValues(prev => ({ ...prev, nama_produk: e.target.value }))}
+                />
+                {formErrors.nama_produk && <div className="form-error-msg">{formErrors.nama_produk}</div>}
+              </div>
+
+              {/* Unit (satuan_saji) */}
+              <div className="form-group">
+                <label className="form-label">Tipe Produk / Satuan Takaran Saji</label>
+                <div className="radio-group">
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="satuan_saji"
+                      value="ml"
+                      checked={formValues.satuan_saji === "ml"}
+                      onChange={() => setFormValues(prev => ({ ...prev, satuan_saji: "ml" }))}
+                    />
+                    Cair / Siap Minum (ml)
+                  </label>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="satuan_saji"
+                      value="g"
+                      checked={formValues.satuan_saji === "g"}
+                      onChange={() => setFormValues(prev => ({ ...prev, satuan_saji: "g" }))}
+                    />
+                    Bubuk / Serbuk (g)
+                  </label>
+                </div>
+                {formErrors.satuan_saji && <div className="form-error-msg">{formErrors.satuan_saji}</div>}
+              </div>
+
+              {/* Serving Size (ukuran_sajian_nilai) */}
+              <div className="form-group">
+                <label className="form-label" htmlFor="ukuran_sajian_nilai">Ukuran Sajian ({formValues.satuan_saji === "g" ? "g" : "ml"})</label>
+                <input
+                  id="ukuran_sajian_nilai"
+                  type="text"
+                  inputMode="decimal"
+                  className="form-control"
+                  placeholder="Contoh: 200"
+                  value={formValues.ukuran_sajian_nilai}
+                  onChange={e => setFormValues(prev => ({ ...prev, ukuran_sajian_nilai: e.target.value }))}
+                />
+                {formErrors.ukuran_sajian_nilai && <div className="form-error-msg">{formErrors.ukuran_sajian_nilai}</div>}
+              </div>
+
+              {/* Sugar & Lactose Row */}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label" htmlFor="total_gula_g">Total Gula (g)</label>
+                  <input
+                    id="total_gula_g"
+                    type="text"
+                    inputMode="decimal"
+                    className="form-control"
+                    placeholder="Contoh: 12"
+                    value={formValues.total_gula_g}
+                    onChange={e => setFormValues(prev => ({ ...prev, total_gula_g: e.target.value }))}
+                  />
+                  {formErrors.total_gula_g && <div className="form-error-msg">{formErrors.total_gula_g}</div>}
+                </div>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="laktosa_g">Laktosa (g) — Opsional</label>
+                  <input
+                    id="laktosa_g"
+                    type="text"
+                    inputMode="decimal"
+                    className="form-control"
+                    placeholder="Contoh: 4 (jika ada)"
+                    value={formValues.laktosa_g}
+                    onChange={e => setFormValues(prev => ({ ...prev, laktosa_g: e.target.value }))}
+                  />
+                  {formErrors.laktosa_g && <div className="form-error-msg">{formErrors.laktosa_g}</div>}
+                </div>
+              </div>
+
+              {/* Sodium & Saturated Fat Row */}
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label" htmlFor="natrium_mg">Natrium / Garam (mg)</label>
+                  <input
+                    id="natrium_mg"
+                    type="text"
+                    inputMode="decimal"
+                    className="form-control"
+                    placeholder="Contoh: 50"
+                    value={formValues.natrium_mg}
+                    onChange={e => setFormValues(prev => ({ ...prev, natrium_mg: e.target.value }))}
+                  />
+                  {formErrors.natrium_mg && <div className="form-error-msg">{formErrors.natrium_mg}</div>}
+                </div>
+                <div className="form-group">
+                  <label className="form-label" htmlFor="lemak_jenuh_g">Lemak Jenuh (g)</label>
+                  <input
+                    id="lemak_jenuh_g"
+                    type="text"
+                    inputMode="decimal"
+                    className="form-control"
+                    placeholder="Contoh: 1.5"
+                    value={formValues.lemak_jenuh_g}
+                    onChange={e => setFormValues(prev => ({ ...prev, lemak_jenuh_g: e.target.value }))}
+                  />
+                  {formErrors.lemak_jenuh_g && <div className="form-error-msg">{formErrors.lemak_jenuh_g}</div>}
+                </div>
+              </div>
+
+              {/* Reconstitution Water (volume_air_ml) - conditional */}
+              {formValues.satuan_saji === "g" && (
+                <div className="form-group">
+                  <label className="form-label" htmlFor="volume_air_ml">Volume Air Penyeduh (ml) — Opsional</label>
+                  <input
+                    id="volume_air_ml"
+                    type="text"
+                    inputMode="decimal"
+                    className="form-control"
+                    placeholder="Contoh: 150 (kosongkan untuk estimasi rentang)"
+                    value={formValues.volume_air_ml}
+                    onChange={e => setFormValues(prev => ({ ...prev, volume_air_ml: e.target.value }))}
+                  />
+                  {formErrors.volume_air_ml && <div className="form-error-msg">{formErrors.volume_air_ml}</div>}
+                </div>
+              )}
+
+              {error && (
+                <div className={S.errBox}>
+                  <i className="ti ti-alert-triangle" style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }} aria-hidden="true" />
+                  <span>{error}</span>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                <button type="button" className={S.btnOutline} style={{ flex: 1 }} onClick={uiState === "manual_input" ? reset : cancelEdit}>
+                  Batal
+                </button>
+                <button type="submit" className={S.btnPrimary} style={{ flex: 1, margin: 0 }}>
+                  {uiState === "manual_input" ? "Hitung" : "Simpan & Hitung"}
+                </button>
+              </div>
+            </form>
           </section>
         )}
 
@@ -1012,6 +1399,67 @@ export default function App() {
         @keyframes slideUp {
           from { opacity:0; transform:translateY(14px); }
           to   { opacity:1; transform:translateY(0); }
+        }
+        .form-group {
+          margin-bottom: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .form-label {
+          font-size: 11px;
+          font-weight: 700;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        .form-control {
+          width: 100%;
+          padding: 10px 12px;
+          border: 1.5px solid var(--border-strong);
+          border-radius: 10px;
+          font-size: 13px;
+          outline: none;
+          background: var(--bg-input);
+          color: var(--text-primary);
+          transition: border-color 0.2s;
+          box-sizing: border-box;
+        }
+        .form-control:focus {
+          border-color: var(--accent-primary);
+        }
+        .form-control:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .form-error-msg {
+          font-size: 11px;
+          color: var(--error-text);
+          margin-top: 2px;
+        }
+        .form-row {
+          display: flex;
+          gap: 10px;
+        }
+        .form-row > * {
+          flex: 1;
+        }
+        .radio-group {
+          display: flex;
+          gap: 16px;
+          margin-top: 4px;
+          margin-bottom: 4px;
+        }
+        .radio-label {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+          color: var(--text-primary);
+          cursor: pointer;
+        }
+        .radio-label input {
+          cursor: pointer;
         }
       `}</style>
     </div>
